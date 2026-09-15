@@ -74,6 +74,24 @@ _peft_available = is_package_available("peft")
 _scipy_available = is_package_available("scipy")
 _reachy2_sdk_available = is_package_available("reachy2_sdk")
 _can_available = is_package_available("python-can", "can")
+_motorbridge_available = is_package_available("motorbridge")
+_motorbridge_smart_servo_available = is_package_available(
+    "motorbridge-smart-servo", import_name="motorbridge_smart_servo"
+)
+
+_require_package_cache: dict[str, bool] = {}
+
+
+def require_package(pkg_name: str, extra: str, import_name: str | None = None) -> None:
+    """Raise an informative error when an optional hardware dependency is unavailable."""
+    cache_key = import_name or pkg_name
+    if cache_key not in _require_package_cache:
+        _require_package_cache[cache_key] = bool(is_package_available(pkg_name, import_name))
+    if not _require_package_cache[cache_key]:
+        raise ImportError(
+            f"'{pkg_name}' is required but not installed. Install it with: "
+            f"pip install 'lerobot[{extra}]'"
+        )
 
 
 def make_device_from_device_class(config: ChoiceRegistry) -> Any:

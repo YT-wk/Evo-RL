@@ -17,15 +17,13 @@
 import logging
 import time
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import numpy as np
 
 from lerobot.datasets.image_writer import safe_stop_image_writer
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import build_dataset_frame
-from lerobot.policies.pretrained import PreTrainedPolicy
-from lerobot.policies.utils import make_robot_action
 from lerobot.processor import (
     PolicyAction,
     PolicyProcessorPipeline,
@@ -50,6 +48,9 @@ from lerobot.utils.recording_annotations import resolve_collector_policy_id
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.utils import get_safe_torch_device
 from lerobot.utils.visualization_utils import log_rerun_data
+
+if TYPE_CHECKING:
+    from lerobot.policies.pretrained import PreTrainedPolicy
 
 T = TypeVar("T")
 
@@ -100,7 +101,7 @@ def record_loop(
     ],  # runs after robot
     dataset: LeRobotDataset | None = None,
     teleop: Teleoperator | list[Teleoperator] | None = None,
-    policy: PreTrainedPolicy | None = None,
+    policy: "PreTrainedPolicy | None" = None,
     preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]] | None = None,
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction] | None = None,
     control_time_s: int | None = None,
@@ -298,6 +299,8 @@ def record_loop(
                 cond_runtime_state=cond_policy_runtime_state,
                 uncond_runtime_state=uncond_policy_runtime_state,
             )
+            from lerobot.policies.utils import make_robot_action
+
             act_processed_policy = make_robot_action(policy_action, dataset.features)
 
         if isinstance(teleop, Teleoperator):

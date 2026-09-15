@@ -17,8 +17,11 @@
 ########################################################################################
 
 
+import atexit
+import contextlib
 import logging
 import os
+import platform
 import select
 import sys
 import termios
@@ -28,7 +31,7 @@ import tty
 from contextlib import nullcontext
 from copy import copy
 from functools import cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
@@ -36,8 +39,6 @@ from deepdiff import DeepDiff
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import DEFAULT_FEATURES
-from lerobot.policies.pretrained import PreTrainedPolicy
-from lerobot.policies.utils import prepare_observation_for_inference
 from lerobot.processor import PolicyAction, PolicyProcessorPipeline
 from lerobot.robots import Robot
 from lerobot.utils.recording_annotations import EPISODE_FAILURE, EPISODE_SUCCESS
@@ -45,26 +46,45 @@ from lerobot.utils.recording_annotations import EPISODE_FAILURE, EPISODE_SUCCESS
 # Minimum interval (seconds) between consecutive intervention toggle presses.
 INTERVENTION_TOGGLE_COOLDOWN_S = 0.5
 
+if TYPE_CHECKING:
+    from lerobot.policies.pretrained import PreTrainedPolicy
+
 
 @cache
-def is_headless():
+def is_headless() -> bool:
     """
     Detects if the Python script is running in a headless environment (e.g., without a display).
 
-    This function attempts to import `pynput`, a library that requires a graphical environment.
-    If the import fails, it assumes the environment is headless. The result is cached to avoid
-    re-running the check.
+    On Linux, use display-server state rather than whether ``pynput`` happens
+    to import. ``pynput`` may import through XWayland yet be unable to receive
+    global key events, and headless SSH sessions have no usable display at all.
 
     Returns:
         True if the environment is determined to be headless, False otherwise.
     """
-    try:
-        import pynput  # noqa
+    if platform.system() == "Linux":
+        return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    return False
 
+
+@cache
+def is_wayland() -> bool:
+    """Whether the active Linux display session uses Wayland rather than X11."""
+    return os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or bool(
+        os.environ.get("WAYLAND_DISPLAY")
+    )
+
+
+def pynput_can_capture() -> bool:
+    """Return whether ``pynput`` is a viable global keyboard backend here."""
+    if platform.system() == "Linux" and (is_headless() or is_wayland()):
         return False
-    except Exception as e:
-        logging.info("pynput unavailable; using headless controls instead: %s", e)
-        return True
+    try:
+        import pynput  # noqa: F401
+    except Exception as error:
+        logging.info("pynput keyboard backend is unavailable: %s", error)
+        return False
+    return True
 
 
 class TTYKeyboardListener:
@@ -88,8 +108,16 @@ class TTYKeyboardListener:
         self._last_intervention_time: float = 0.0
 
     def start(self):
+        if not sys.stdin.isatty():
+            logging.warning("Terminal keyboard input is unavailable because stdin is not a TTY.")
+            return
         self._old_attrs = termios.tcgetattr(self._fd)
         tty.setcbreak(self._fd)
+        # SSH arrow-key escape sequences must not be echoed into the terminal.
+        new_attrs = termios.tcgetattr(self._fd)
+        new_attrs[3] &= ~termios.ECHO
+        termios.tcsetattr(self._fd, termios.TCSADRAIN, new_attrs)
+        atexit.register(self.stop)
         self._thread = threading.Thread(target=self._run, name="tty-keyboard-listener", daemon=True)
         self._thread.start()
 
@@ -103,6 +131,8 @@ class TTYKeyboardListener:
         if self._old_attrs is not None:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old_attrs)
             self._old_attrs = None
+        with contextlib.suppress(Exception):
+            atexit.unregister(self.stop)
 
     def _run(self):
         while not self._stop_event.is_set():
@@ -153,12 +183,23 @@ class TTYKeyboardListener:
         if normalized == "RIGHT":
             print("Right arrow key pressed. Exiting loop...")
             self.events["exit_early"] = True
+        elif normalized == "n":
+            print("'n' key pressed. Exiting loop...")
+            self.events["exit_early"] = True
         elif normalized == "LEFT":
             print("Left arrow key pressed. Exiting loop and rerecord the last episode...")
             self.events["rerecord_episode"] = True
             self.events["exit_early"] = True
+        elif normalized == "r":
+            print("'r' key pressed. Exiting loop and rerecord the last episode...")
+            self.events["rerecord_episode"] = True
+            self.events["exit_early"] = True
         elif normalized == "ESC":
             print("Escape key pressed. Stopping data recording...")
+            self.events["stop_recording"] = True
+            self.events["exit_early"] = True
+        elif normalized == "q":
+            print("'q' key pressed. Stopping data recording...")
             self.events["stop_recording"] = True
             self.events["exit_early"] = True
         elif normalized == self.intervention_toggle_key:
@@ -180,7 +221,7 @@ class TTYKeyboardListener:
 
 def predict_action(
     observation: dict[str, np.ndarray],
-    policy: PreTrainedPolicy,
+    policy: "PreTrainedPolicy",
     device: torch.device,
     preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction],
@@ -211,6 +252,10 @@ def predict_action(
     Returns:
         A `torch.Tensor` containing the predicted action, ready for the robot.
     """
+    # Policy modules can pull in optional model families. Pure teleoperation
+    # never calls this function, so defer that import until policy inference.
+    from lerobot.policies.utils import prepare_observation_for_inference
+
     observation = copy(observation)
     with (
         torch.inference_mode(),
@@ -258,8 +303,7 @@ def init_keyboard_listener(
     events["episode_outcome"] = None
 
     listener = None
-    if not is_headless():
-        # Only import pynput if not in a headless environment
+    if pynput_can_capture():
         from pynput import keyboard
 
         last_intervention_time = [0.0]
@@ -305,9 +349,13 @@ def init_keyboard_listener(
             except Exception as e:
                 print(f"Error handling key press: {e}")
 
-        listener = keyboard.Listener(on_press=on_press)
-        listener.start()
-        return listener, events
+        try:
+            listener = keyboard.Listener(on_press=on_press)
+            listener.start()
+            logging.info("Using pynput keyboard controls: Right/Left/Esc, i, s/f.")
+            return listener, events
+        except Exception as error:
+            logging.warning("pynput listener failed; falling back to terminal input: %s", error)
 
     if sys.stdin.isatty():
         listener = TTYKeyboardListener(
@@ -318,12 +366,13 @@ def init_keyboard_listener(
         )
         listener.start()
         logging.warning(
-            "Headless environment detected. Using terminal keyboard controls over the current TTY; on-screen camera display remains unavailable."
+            "Using terminal keyboard controls over the current TTY: Right/Left/Esc or "
+            "n=next, r=re-record, q=quit; i=intervention, s=success, f=failure."
         )
         return listener, events
 
     logging.warning(
-        "Headless environment detected without an interactive TTY. On-screen cameras display and keyboard inputs will not be available."
+        "Keyboard controls are unavailable: no usable graphical listener and stdin is not an interactive TTY."
     )
 
     return listener, events

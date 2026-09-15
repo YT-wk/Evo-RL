@@ -18,17 +18,19 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
 
-from lerobot.policies.pretrained import PreTrainedPolicy
 from lerobot.processor import PolicyAction, PolicyProcessorPipeline, RobotAction
 from lerobot.rl.acp_tags import build_acp_tagged_task
 from lerobot.robots import Robot
 from lerobot.teleoperators import Teleoperator
 from lerobot.utils.control_utils import predict_action
+
+if TYPE_CHECKING:
+    from lerobot.policies.pretrained import PreTrainedPolicy
 
 
 @dataclass
@@ -74,7 +76,7 @@ def _clone_runtime_value(value: Any) -> Any:
     return deepcopy(value)
 
 
-def _capture_policy_runtime_state(policy: PreTrainedPolicy) -> dict[str, Any]:
+def _capture_policy_runtime_state(policy: "PreTrainedPolicy") -> dict[str, Any]:
     state: dict[str, Any] = {}
     for key in POLICY_RUNTIME_STATE_KEYS:
         if hasattr(policy, key):
@@ -82,7 +84,7 @@ def _capture_policy_runtime_state(policy: PreTrainedPolicy) -> dict[str, Any]:
     return state
 
 
-def _restore_policy_runtime_state(policy: PreTrainedPolicy, state: dict[str, Any]) -> None:
+def _restore_policy_runtime_state(policy: "PreTrainedPolicy", state: dict[str, Any]) -> None:
     for key, value in state.items():
         setattr(policy, key, _clone_runtime_value(value))
 
@@ -90,7 +92,7 @@ def _restore_policy_runtime_state(policy: PreTrainedPolicy, state: dict[str, Any
 def _predict_policy_action_with_runtime_state(
     *,
     observation_frame: dict[str, np.ndarray],
-    policy: PreTrainedPolicy,
+    policy: "PreTrainedPolicy",
     device: torch.device,
     preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction],
@@ -118,7 +120,7 @@ def _predict_policy_action_with_runtime_state(
 def _predict_policy_action_with_acp_inference(
     *,
     observation_frame: dict[str, np.ndarray],
-    policy: PreTrainedPolicy,
+    policy: "PreTrainedPolicy",
     device: torch.device,
     preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction],

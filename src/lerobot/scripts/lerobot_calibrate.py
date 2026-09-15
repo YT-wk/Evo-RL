@@ -37,6 +37,7 @@ from lerobot.robots import (  # noqa: F401
     Robot,
     RobotConfig,
     bi_openarm_follower,
+    bi_rebot_b601_follower,
     bi_piper_follower,
     bi_so_follower,
     hope_jr,
@@ -45,6 +46,7 @@ from lerobot.robots import (  # noqa: F401
     make_robot_from_config,
     omx_follower,
     openarm_follower,
+    rebot_b601_follower,
     piper_follower,
     so_follower,
 )
@@ -52,6 +54,7 @@ from lerobot.teleoperators import (  # noqa: F401
     Teleoperator,
     TeleoperatorConfig,
     bi_openarm_leader,
+    bi_rebot_102_leader,
     bi_piper_leader,
     bi_so_leader,
     homunculus,
@@ -59,12 +62,17 @@ from lerobot.teleoperators import (  # noqa: F401
     make_teleoperator_from_config,
     omx_leader,
     openarm_leader,
+    rebot_102_leader,
     piper_leader,
     so_leader,
-    unitree_g1,
 )
 from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.utils import init_logging
+
+try:
+    from lerobot.teleoperators import unitree_g1  # noqa: F401
+except (ImportError, TypeError) as error:
+    logging.warning("Unitree G1 CLI registration is unavailable: %s", error)
 
 
 @dataclass

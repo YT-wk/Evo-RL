@@ -73,6 +73,7 @@ from lerobot.robots import (  # noqa: F401
     Robot,
     RobotConfig,
     bi_openarm_follower,
+    bi_rebot_b601_follower,
     bi_piper_follower,
     bi_so_follower,
     earthrover_mini_plus,
@@ -81,15 +82,16 @@ from lerobot.robots import (  # noqa: F401
     make_robot_from_config,
     omx_follower,
     openarm_follower,
+    rebot_b601_follower,
     piper_follower,
     reachy2,
     so_follower,
-    unitree_g1 as unitree_g1_robot,
 )
 from lerobot.teleoperators import (  # noqa: F401
     Teleoperator,
     TeleoperatorConfig,
     bi_openarm_leader,
+    bi_rebot_102_leader,
     bi_piper_leader,
     bi_so_leader,
     gamepad,
@@ -99,16 +101,24 @@ from lerobot.teleoperators import (  # noqa: F401
     make_teleoperator_from_config,
     omx_leader,
     openarm_leader,
+    rebot_102_leader,
     piper_leader,
     reachy2_teleoperator,
     so_leader,
-    unitree_g1,
 )
 from lerobot.utils.control_utils import sanity_check_bimanual_piper_pair
 from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.utils import init_logging, move_cursor_up
 from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
+
+# Unitree's optional stack imports policy modules. A broken or uninstalled
+# policy dependency must not prevent unrelated robot types from registering.
+try:
+    from lerobot.robots import unitree_g1 as unitree_g1_robot  # noqa: F401
+    from lerobot.teleoperators import unitree_g1  # noqa: F401
+except (ImportError, TypeError) as error:
+    logging.warning("Unitree G1 CLI registration is unavailable: %s", error)
 
 
 LOOP_STATUS_INTERVAL_S = 0.5

@@ -1,0 +1,46 @@
+# reBot B601-DM
+
+The Seeed Studio reBot B601-DM is a 6-DOF Damiao-motor follower with a gripper. It is operated by the StarArm102 / reBot Arm 102 UART leader. Evo-RL supports both single-arm and dual-arm configurations.
+
+## Install
+
+```bash
+pip install -e ".[rebot]"
+```
+
+MIT control requires a B601 gravity-model URDF. Set one of these before connecting a follower:
+
+```bash
+export REBOT_GRAVITY_SDK_ROOT=/path/to/reBotArm_control_py
+# Or set the file directly:
+export REBOT_GRAVITY_URDF=/path/to/ReBot_Arm_DM.urdf
+```
+
+For every MIT command, Evo-RL refreshes the follower feedback, evaluates the SDK URDF's raw Pinocchio `g(q)`, and sends the resulting torque vector as `tau_ff` to the six arm joints. It does not apply torque scaling, joint-sign correction, or clipping. The gripper retains its configured MIT or FORCE_POS behavior and receives `tau_ff=0`.
+
+## Calibrate
+
+Put each follower and leader in its respective documented zero pose before confirming the interactive calibration prompt.
+
+```bash
+lerobot-calibrate --robot.type=rebot_b601_follower --robot.port=/dev/ttyACM0 --robot.id=left_follower
+lerobot-calibrate --teleop.type=rebot_102_leader --teleop.port=/dev/ttyUSB0 --teleop.id=left_leader
+```
+
+## Teleoperate
+
+```bash
+lerobot-teleoperate \
+  --robot.type=rebot_b601_follower \
+  --robot.port=/dev/ttyACM0 \
+  --robot.id=left_follower \
+  --teleop.type=rebot_102_leader \
+  --teleop.port=/dev/ttyUSB0 \
+  --teleop.id=left_leader
+```
+
+For two arms, use `bi_rebot_b601_follower` and `bi_rebot_102_leader` with separate nested `left_arm_config.port` and `right_arm_config.port` values. Bimanual features are named `left_*` followed by `right_*`.
+
+## Safety
+
+MIT control refuses to send an action if current feedback is invalid or if the gravity URDF cannot be loaded. On disconnect, a B601 executes its staged safe-home trajectory while retaining gravity feedforward. If safe-home fails, Evo-RL keeps the bus connected and torque enabled for manual recovery; do not restart another control process until the arm is secured.

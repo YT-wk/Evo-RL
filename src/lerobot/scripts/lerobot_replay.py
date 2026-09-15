@@ -54,6 +54,7 @@ from lerobot.robots import (  # noqa: F401
     Robot,
     RobotConfig,
     bi_openarm_follower,
+    bi_rebot_b601_follower,
     bi_piper_follower,
     bi_so_follower,
     earthrover_mini_plus,
@@ -62,10 +63,10 @@ from lerobot.robots import (  # noqa: F401
     make_robot_from_config,
     omx_follower,
     openarm_follower,
+    rebot_b601_follower,
     piper_follower,
     reachy2,
     so_follower,
-    unitree_g1,
 )
 from lerobot.utils.constants import ACTION
 from lerobot.utils.import_utils import register_third_party_plugins
@@ -74,6 +75,11 @@ from lerobot.utils.utils import (
     init_logging,
     log_say,
 )
+
+try:
+    from lerobot.robots import unitree_g1  # noqa: F401
+except (ImportError, TypeError) as error:
+    logging.warning("Unitree G1 CLI registration is unavailable: %s", error)
 
 
 @dataclass
