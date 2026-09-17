@@ -35,11 +35,16 @@ from lerobot.robots import Robot
 from lerobot.scripts.recording_hil import (
     INTERVENTION_STATE_ACTIVE,
     INTERVENTION_STATE_POLICY,
+    INTERVENTION_STATE_PREPARE,
     INTERVENTION_STATE_RELEASE,
     ACPInferenceConfig,
     PolicySyncDualArmExecutor,
     _capture_policy_runtime_state,
     _predict_policy_action_with_acp_inference,
+    cancel_teleop_handoff,
+    prepare_teleop_handoff,
+    set_robot_gravity_compensation,
+    set_teleop_manual_control as apply_teleop_manual_control,
 )
 from lerobot.teleoperators import Teleoperator, koch_leader, omx_leader, so_leader
 from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop
@@ -110,6 +115,10 @@ def record_loop(
     display_compressed_images: bool = False,
     policy_sync_executor: PolicySyncDualArmExecutor | None = None,
     intervention_state_machine_enabled: bool = True,
+    guarded_handoff_enabled: bool = False,
+    intervention_leader_move_duration_s: float = 1.0,
+    intervention_leader_settle_time_s: float = 0.2,
+    intervention_leader_hold_power: int = 500,
     collector_policy_id_policy: str = "policy",
     collector_policy_id_human: str = "human",
     acp_inference: ACPInferenceConfig | None = None,
@@ -162,6 +171,10 @@ def record_loop(
     intervention_state = INTERVENTION_STATE_POLICY
     last_teleop_action: RobotAction | None = None
     teleop_fallback_warned = False
+    intervention_hold_action: RobotAction | None = None
+    intervention_leader_target: RobotAction | None = None
+    intervention_leader_ready_at: float | None = None
+    intervention_confirmation_pending = False
 
     teleop_arm_for_mode_switch: Any | None = None
     if isinstance(teleop, Teleoperator):
@@ -172,9 +185,19 @@ def record_loop(
     def set_teleop_manual_control(enabled: bool) -> None:
         if teleop_arm_for_mode_switch is None:
             return
-        if not hasattr(teleop_arm_for_mode_switch, "set_manual_control"):
-            return
-        teleop_arm_for_mode_switch.set_manual_control(enabled)
+        apply_teleop_manual_control(teleop_arm_for_mode_switch, enabled)
+
+    def set_intervention_gravity_compensation(enabled: bool) -> None:
+        set_robot_gravity_compensation(robot, enabled)
+
+    def hold_action_from_observation(observation: RobotObservation) -> RobotAction:
+        missing = [name for name in action_feature_names if name not in observation]
+        if missing:
+            raise ValueError(f"Cannot hold follower: observation is missing action joints {missing}.")
+        return {
+            name: float(np.asarray(observation[name], dtype=np.float32).reshape(-1)[0])
+            for name in action_feature_names
+        }
 
     if policy is None:
         # During reset/teleop-only loops keep leader backdrivable for manual dragging.
@@ -193,7 +216,7 @@ def record_loop(
         uncond_policy_runtime_state = _capture_policy_runtime_state(policy)
 
     if intervention_enabled:
-        # Start in S0: policy drives both arms, teleop arm should accept feedback commands.
+        # Start in S0: policy drives the follower. Arm102 stays released until a guarded handoff.
         set_teleop_manual_control(False)
 
     def run_with_connection_retry(action_name: str, fn: Callable[[], T]) -> T:
@@ -245,6 +268,52 @@ def record_loop(
             events["exit_early"] = False
             break
 
+        if guarded_handoff_enabled and events.get("prepare_intervention", False):
+            events["prepare_intervention"] = False
+            if intervention_enabled:
+                if intervention_state == INTERVENTION_STATE_POLICY:
+                    intervention_state = INTERVENTION_STATE_PREPARE
+                    intervention_hold_action = None
+                    intervention_leader_target = None
+                    intervention_leader_ready_at = None
+                    intervention_confirmation_pending = False
+                    set_intervention_gravity_compensation(True)
+                    logging.info(
+                        "Intervention prepared: follower will hold its measured pose while the leader aligns once."
+                    )
+                elif intervention_state == INTERVENTION_STATE_PREPARE:
+                    cancel_teleop_handoff(teleop_arm_for_mode_switch)
+                    intervention_state = INTERVENTION_STATE_RELEASE
+                    intervention_hold_action = None
+                    intervention_leader_target = None
+                    set_intervention_gravity_compensation(False)
+                    logging.info("Intervention preparation cancelled; returning control to policy.")
+                else:
+                    intervention_state = INTERVENTION_STATE_RELEASE
+                    set_teleop_manual_control(False)
+                    set_intervention_gravity_compensation(False)
+                    if policy is not None and preprocessor is not None and postprocessor is not None:
+                        policy.reset()
+                        preprocessor.reset()
+                        postprocessor.reset()
+                        if acp_inference.enable and acp_inference.use_cfg:
+                            cond_policy_runtime_state = _capture_policy_runtime_state(policy)
+                            uncond_policy_runtime_state = _capture_policy_runtime_state(policy)
+                    logging.info("Intervention released by prepare key; returning control to policy.")
+            else:
+                logging.info("Intervention prepare ignored because policy+teleop are not both active.")
+
+        if guarded_handoff_enabled and events.get("confirm_intervention", False):
+            events["confirm_intervention"] = False
+            if not intervention_enabled:
+                logging.info("Intervention confirm ignored because policy+teleop are not both active.")
+            elif intervention_state == INTERVENTION_STATE_PREPARE:
+                intervention_confirmation_pending = True
+            elif intervention_state == INTERVENTION_STATE_ACTIVE:
+                logging.info("Intervention confirm ignored while teleop is active; press the prepare key to resume policy.")
+            else:
+                logging.info("Intervention confirm ignored; press the prepare key first.")
+
         if events.get("toggle_intervention", False):
             events["toggle_intervention"] = False
             if intervention_enabled:
@@ -274,6 +343,32 @@ def record_loop(
         # Applies a pipeline to the raw robot observation, default is IdentityProcessor
         obs_processed = robot_observation_processor(obs)
 
+        if (
+            intervention_enabled
+            and guarded_handoff_enabled
+            and intervention_state == INTERVENTION_STATE_PREPARE
+            and intervention_leader_target is None
+        ):
+            intervention_leader_target = hold_action_from_observation(obs)
+            intervention_hold_action = dict(intervention_leader_target)
+            automatic = prepare_teleop_handoff(
+                teleop_arm_for_mode_switch,
+                intervention_leader_target,
+                duration_s=intervention_leader_move_duration_s,
+                hold_power=intervention_leader_hold_power,
+            )
+            if automatic:
+                intervention_leader_ready_at = (
+                    time.perf_counter()
+                    + intervention_leader_move_duration_s
+                    + intervention_leader_settle_time_s
+                )
+                logging.info(
+                    "Leader auto-alignment started: %.2fs move + %.2fs settle before release.",
+                    intervention_leader_move_duration_s,
+                    intervention_leader_settle_time_s,
+                )
+
         if dataset is not None:
             observation_frame = build_dataset_frame(dataset.features, obs_processed, prefix=OBS_STR)
 
@@ -284,7 +379,10 @@ def record_loop(
             policy is not None
             and preprocessor is not None
             and postprocessor is not None
-            and not (intervention_enabled and intervention_state == INTERVENTION_STATE_ACTIVE)
+            and not (
+                intervention_enabled
+                and intervention_state in {INTERVENTION_STATE_ACTIVE, INTERVENTION_STATE_PREPARE}
+            )
         ):
             policy_action = _predict_policy_action_with_acp_inference(
                 observation_frame=observation_frame,
@@ -317,6 +415,19 @@ def record_loop(
             act = {**arm_action, **base_action} if len(base_action) > 0 else arm_action
             act_processed_teleop = teleop_action_processor((act, obs))
 
+        if intervention_confirmation_pending:
+            intervention_confirmation_pending = False
+            now = time.perf_counter()
+            if intervention_leader_ready_at is not None and now < intervention_leader_ready_at:
+                logging.info(
+                    "Leader is still moving; wait %.1fs before confirming teleop.",
+                    intervention_leader_ready_at - now,
+                )
+            else:
+                set_teleop_manual_control(True)
+                intervention_state = INTERVENTION_STATE_ACTIVE
+                logging.info("Leader released; teleop actions now override policy execution.")
+
         if act_processed_policy is None and act_processed_teleop is None:
             logging.info(
                 "No policy or teleoperator provided, skipping action generation."
@@ -334,7 +445,12 @@ def record_loop(
         )
 
         is_intervention = 0.0
-        if intervention_enabled and intervention_state == INTERVENTION_STATE_ACTIVE:
+        if intervention_enabled and intervention_state == INTERVENTION_STATE_PREPARE:
+            is_intervention = 1.0
+            if intervention_hold_action is None:
+                raise RuntimeError("Intervention prepare state has no follower hold action.")
+            action_values = intervention_hold_action
+        elif intervention_enabled and intervention_state == INTERVENTION_STATE_ACTIVE:
             is_intervention = 1.0
             if act_processed_teleop is not None:
                 action_values = act_processed_teleop

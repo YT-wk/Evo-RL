@@ -46,6 +46,7 @@ POLICY_RUNTIME_STATE_KEYS = ("_action_queue", "_queues", "_prev_mean")
 INTERVENTION_STATE_POLICY = 0.0
 INTERVENTION_STATE_ACTIVE = 1.0
 INTERVENTION_STATE_RELEASE = 2.0
+INTERVENTION_STATE_PREPARE = 3.0
 
 
 def _get_torch_rng_state(device: torch.device) -> tuple[torch.Tensor, torch.Tensor | None]:
@@ -217,3 +218,48 @@ class PolicySyncDualArmExecutor:
     def shutdown(self) -> None:
         if self._pool is not None:
             self._pool.shutdown(wait=True)
+
+
+def set_teleop_manual_control(teleop: Teleoperator, enabled: bool) -> None:
+    """Switch a leader between a controlled hold and backdrivable teleoperation."""
+    set_manual_control = getattr(teleop, "set_manual_control", None)
+    if callable(set_manual_control):
+        set_manual_control(enabled)
+        return
+
+    # Arm102 is only torque-held while move_to() aligns it to the follower.
+    # Releasing torque is its manual-control mode.
+    if enabled and callable(getattr(teleop, "move_to", None)):
+        disable_torque = getattr(teleop, "disable_torque", None)
+        if callable(disable_torque):
+            disable_torque()
+
+
+def set_robot_gravity_compensation(robot: Robot, enabled: bool) -> None:
+    """Enable the follower's guarded-takeover support when the robot exposes it."""
+    set_gravity_compensation = getattr(robot, "set_gravity_compensation", None)
+    if callable(set_gravity_compensation):
+        set_gravity_compensation(enabled)
+
+
+def prepare_teleop_handoff(
+    teleop: Teleoperator,
+    follower_action: RobotAction,
+    *,
+    duration_s: float,
+    hold_power: int,
+) -> bool:
+    """Move a positionable leader once to the measured follower pose."""
+    move_to = getattr(teleop, "move_to", None)
+    if not callable(move_to):
+        return False
+    move_to(follower_action, duration_s=duration_s, hold_power=hold_power)
+    return True
+
+
+def cancel_teleop_handoff(teleop: Teleoperator) -> None:
+    """Release a leader that was aligned but not handed to the operator."""
+    if callable(getattr(teleop, "move_to", None)):
+        disable_torque = getattr(teleop, "disable_torque", None)
+        if callable(disable_torque):
+            disable_torque()

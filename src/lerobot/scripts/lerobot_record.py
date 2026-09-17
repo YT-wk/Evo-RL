@@ -107,6 +107,7 @@ from lerobot.scripts.recording_hil import (
 )
 from lerobot.scripts.recording_loop import record_loop
 from lerobot.teleoperators import (  # noqa: F401
+    Teleoperator,
     TeleoperatorConfig,
     bi_openarm_leader,
     bi_rebot_102_leader,
@@ -224,6 +225,12 @@ class RecordConfig:
     intervention_state_machine_enabled: bool = True
     # Keyboard key used to toggle entering/leaving intervention.
     intervention_toggle_key: str = "i"
+    # For positionable leaders such as Arm102, confirm the prepared handoff and release torque.
+    intervention_confirm_key: str = " "
+    # Firmware-interpolated leader alignment timing for guarded Arm102 handoff.
+    intervention_leader_move_duration_s: float = 1.0
+    intervention_leader_settle_time_s: float = 0.2
+    intervention_leader_hold_power: int = 500
     # Whether to capture episode-level success/failure labels from keyboard.
     enable_episode_outcome_labeling: bool = False
     # Keyboard key to mark the current episode as success and end it.
@@ -262,6 +269,16 @@ class RecordConfig:
         sanity_check_bimanual_piper_pair(self.robot, self.teleop)
         if not self.intervention_toggle_key or len(self.intervention_toggle_key) != 1:
             raise ValueError("`intervention_toggle_key` must be a single character.")
+        if not self.intervention_confirm_key or len(self.intervention_confirm_key) != 1:
+            raise ValueError("`intervention_confirm_key` must be a single character.")
+        if self.intervention_confirm_key.lower() == self.intervention_toggle_key.lower():
+            raise ValueError("`intervention_toggle_key` and `intervention_confirm_key` must be distinct.")
+        if self.intervention_leader_move_duration_s < 0:
+            raise ValueError("`intervention_leader_move_duration_s` must be >= 0.")
+        if self.intervention_leader_settle_time_s < 0:
+            raise ValueError("`intervention_leader_settle_time_s` must be >= 0.")
+        if self.intervention_leader_hold_power < 0:
+            raise ValueError("`intervention_leader_hold_power` must be >= 0.")
 
         if self.enable_episode_outcome_labeling:
             label_key_bindings = {
@@ -274,12 +291,14 @@ class RecordConfig:
 
             normalized_keys = [
                 self.intervention_toggle_key.lower(),
+                self.intervention_confirm_key.lower(),
                 self.episode_success_key.lower(),
                 self.episode_failure_key.lower(),
             ]
             if len(set(normalized_keys)) != len(normalized_keys):
                 raise ValueError(
-                    "`intervention_toggle_key`, `episode_success_key`, and `episode_failure_key` must be distinct."
+                    "`intervention_toggle_key`, `intervention_confirm_key`, `episode_success_key`, and "
+                    "`episode_failure_key` must be distinct."
                 )
 
         if self.default_episode_success is not None:
@@ -461,8 +480,17 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     teleop.name,
                 )
 
+        guarded_handoff_enabled = (
+            cfg.policy is not None
+            and isinstance(teleop, Teleoperator)
+            and callable(getattr(teleop, "move_to", None))
+            and callable(getattr(teleop, "disable_torque", None))
+        )
+
         listener, events = init_keyboard_listener(
             intervention_toggle_key=cfg.intervention_toggle_key,
+            intervention_prepare_key=cfg.intervention_toggle_key if guarded_handoff_enabled else None,
+            intervention_confirm_key=cfg.intervention_confirm_key if guarded_handoff_enabled else None,
             episode_success_key=cfg.episode_success_key if cfg.enable_episode_outcome_labeling else None,
             episode_failure_key=cfg.episode_failure_key if cfg.enable_episode_outcome_labeling else None,
         )
@@ -490,6 +518,10 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     display_compressed_images=display_compressed_images,
                     policy_sync_executor=policy_sync_executor,
                     intervention_state_machine_enabled=cfg.intervention_state_machine_enabled,
+                    guarded_handoff_enabled=guarded_handoff_enabled,
+                    intervention_leader_move_duration_s=cfg.intervention_leader_move_duration_s,
+                    intervention_leader_settle_time_s=cfg.intervention_leader_settle_time_s,
+                    intervention_leader_hold_power=cfg.intervention_leader_hold_power,
                     collector_policy_id_policy=collector_policy_id_policy,
                     collector_policy_id_human=collector_policy_id_human,
                     acp_inference=cfg.acp_inference,
@@ -539,6 +571,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                         display_data=cfg.display_data,
                         policy_sync_executor=policy_sync_executor,
                         intervention_state_machine_enabled=cfg.intervention_state_machine_enabled,
+                        guarded_handoff_enabled=False,
                         collector_policy_id_policy=collector_policy_id_policy,
                         collector_policy_id_human=collector_policy_id_human,
                         acp_inference=cfg.acp_inference,

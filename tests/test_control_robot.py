@@ -16,7 +16,8 @@
 
 import json
 from collections import deque
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
@@ -45,6 +46,7 @@ from lerobot.scripts.lerobot_record import (
 )
 from lerobot.scripts.lerobot_replay import DatasetReplayConfig, ReplayConfig, replay
 from lerobot.scripts.lerobot_teleoperate import TeleoperateConfig, teleoperate
+from lerobot.scripts import recording_loop as recording_loop_module
 from lerobot.utils.recording_annotations import EPISODE_SUCCESS
 from tests.fixtures.constants import DUMMY_REPO_ID
 from tests.mocks.mock_robot import MockRobot, MockRobotConfig
@@ -460,6 +462,110 @@ def test_policy_sync_dual_arm_executor():
     assert sent_action == action
     robot.send_action.assert_called_once_with(action)
     teleop.send_feedback.assert_called_once_with(action)
+
+
+def test_guarded_handoff_holds_follower_aligns_once_then_returns_to_policy(monkeypatch):
+    class PositionableTeleop(MockTeleop):
+        def __init__(self, config):
+            super().__init__(config)
+            self.move_to_calls = []
+            self.disable_torque_calls = 0
+
+        def move_to(self, target, *, duration_s, hold_power):
+            self.move_to_calls.append((dict(target), duration_s, hold_power))
+
+        def disable_torque(self):
+            self.disable_torque_calls += 1
+
+    class FakePolicy:
+        config = SimpleNamespace(device="cpu", use_amp=False)
+
+        def __init__(self):
+            self.reset_calls = 0
+
+        def reset(self):
+            self.reset_calls += 1
+
+    action_names = ["motor_1.pos", "motor_2.pos"]
+    robot = MockRobot(MockRobotConfig(n_motors=2, random_values=False, static_values=[12.5, -3.0]))
+    robot.set_gravity_compensation = MagicMock()
+    teleop = PositionableTeleop(
+        MockTeleopConfig(n_motors=2, random_values=False, static_values=[7.0, 8.0])
+    )
+    policy = FakePolicy()
+    dataset = SimpleNamespace(
+        fps=30,
+        features={
+            "action": {"dtype": "float32", "shape": (2,), "names": action_names},
+            "observation.state": {"dtype": "float32", "shape": (2,), "names": action_names},
+        },
+        add_frame=MagicMock(),
+    )
+    events = {
+        "exit_early": False,
+        "rerecord_episode": False,
+        "stop_recording": False,
+        "toggle_intervention": False,
+        "prepare_intervention": True,
+        "confirm_intervention": False,
+        "episode_outcome": None,
+    }
+    sent_actions = []
+
+    def send_action(action):
+        sent_actions.append(dict(action))
+        if len(sent_actions) == 1:
+            events["confirm_intervention"] = True
+        elif len(sent_actions) == 2:
+            events["prepare_intervention"] = True
+        elif len(sent_actions) == 3:
+            events["exit_early"] = True
+        return action
+
+    robot.connect()
+    teleop.connect()
+    robot.send_action = MagicMock(side_effect=send_action)
+    monkeypatch.setattr(
+        recording_loop_module,
+        "_predict_policy_action_with_acp_inference",
+        lambda **_: torch.tensor([[1.0, 2.0]]),
+    )
+    try:
+        record_loop(
+            robot=robot,
+            events=events,
+            fps=30,
+            teleop_action_processor=lambda x: x[0],
+            robot_action_processor=lambda x: x[0],
+            robot_observation_processor=lambda x: x,
+            teleop=teleop,
+            policy=policy,
+            preprocessor=MagicMock(reset=MagicMock()),
+            postprocessor=MagicMock(reset=MagicMock()),
+            dataset=dataset,
+            control_time_s=1,
+            guarded_handoff_enabled=True,
+            intervention_leader_move_duration_s=0,
+            intervention_leader_settle_time_s=0,
+            intervention_leader_hold_power=500,
+        )
+    finally:
+        if teleop.is_connected:
+            teleop.disconnect()
+        if robot.is_connected:
+            robot.disconnect()
+
+    assert teleop.move_to_calls == [({"motor_1.pos": 12.5, "motor_2.pos": -3.0}, 0, 500)]
+    assert teleop.disable_torque_calls == 1
+    assert sent_actions == [
+        {"motor_1.pos": 12.5, "motor_2.pos": -3.0},
+        {"motor_1.pos": 7.0, "motor_2.pos": 8.0},
+        {"motor_1.pos": 1.0, "motor_2.pos": 2.0},
+    ]
+    assert robot.set_gravity_compensation.call_args_list == [
+        call(True),
+        call(False),
+    ]
 
 
 @pytest.mark.parametrize("parallel_dispatch", [False, True])

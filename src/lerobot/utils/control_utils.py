@@ -94,11 +94,15 @@ class TTYKeyboardListener:
         self,
         events: dict[str, Any],
         intervention_toggle_key: str,
+        intervention_prepare_key: str | None,
+        intervention_confirm_key: str | None,
         episode_success_key: str | None,
         episode_failure_key: str | None,
     ):
         self.events = events
         self.intervention_toggle_key = intervention_toggle_key.lower()
+        self.intervention_prepare_key = intervention_prepare_key.lower() if intervention_prepare_key else None
+        self.intervention_confirm_key = intervention_confirm_key.lower() if intervention_confirm_key else None
         self.episode_success_key = episode_success_key.lower() if episode_success_key else None
         self.episode_failure_key = episode_failure_key.lower() if episode_failure_key else None
         self._fd = sys.stdin.fileno()
@@ -202,6 +206,16 @@ class TTYKeyboardListener:
             print("'q' key pressed. Stopping data recording...")
             self.events["stop_recording"] = True
             self.events["exit_early"] = True
+        elif self.intervention_prepare_key and normalized == self.intervention_prepare_key:
+            now = time.monotonic()
+            if now - self._last_intervention_time < INTERVENTION_TOGGLE_COOLDOWN_S:
+                return
+            self._last_intervention_time = now
+            print(f"'{self.intervention_prepare_key}' key pressed. Preparing intervention handoff...")
+            self.events["prepare_intervention"] = True
+        elif self.intervention_confirm_key and normalized == self.intervention_confirm_key:
+            print(f"'{self.intervention_confirm_key}' key pressed. Confirming intervention handoff...")
+            self.events["confirm_intervention"] = True
         elif normalized == self.intervention_toggle_key:
             now = time.monotonic()
             if now - self._last_intervention_time < INTERVENTION_TOGGLE_COOLDOWN_S:
@@ -276,6 +290,8 @@ def predict_action(
 
 def init_keyboard_listener(
     intervention_toggle_key: str = "i",
+    intervention_prepare_key: str | None = None,
+    intervention_confirm_key: str | None = None,
     episode_success_key: str | None = None,
     episode_failure_key: str | None = None,
 ):
@@ -300,6 +316,8 @@ def init_keyboard_listener(
     events["rerecord_episode"] = False
     events["stop_recording"] = False
     events["toggle_intervention"] = False
+    events["prepare_intervention"] = False
+    events["confirm_intervention"] = False
     events["episode_outcome"] = None
 
     listener = None
@@ -321,6 +339,26 @@ def init_keyboard_listener(
                     print("Escape key pressed. Stopping data recording...")
                     events["stop_recording"] = True
                     events["exit_early"] = True
+                elif (
+                    intervention_prepare_key
+                    and hasattr(key, "char")
+                    and key.char
+                    and key.char.lower() == intervention_prepare_key.lower()
+                ):
+                    now = time.monotonic()
+                    if now - last_intervention_time[0] < INTERVENTION_TOGGLE_COOLDOWN_S:
+                        return
+                    last_intervention_time[0] = now
+                    print(f"'{intervention_prepare_key}' key pressed. Preparing intervention handoff...")
+                    events["prepare_intervention"] = True
+                elif (
+                    intervention_confirm_key
+                    and hasattr(key, "char")
+                    and key.char
+                    and key.char.lower() == intervention_confirm_key.lower()
+                ):
+                    print(f"'{intervention_confirm_key}' key pressed. Confirming intervention handoff...")
+                    events["confirm_intervention"] = True
                 elif hasattr(key, "char") and key.char and key.char.lower() == intervention_toggle_key.lower():
                     now = time.monotonic()
                     if now - last_intervention_time[0] < INTERVENTION_TOGGLE_COOLDOWN_S:
@@ -361,13 +399,15 @@ def init_keyboard_listener(
         listener = TTYKeyboardListener(
             events=events,
             intervention_toggle_key=intervention_toggle_key,
+            intervention_prepare_key=intervention_prepare_key,
+            intervention_confirm_key=intervention_confirm_key,
             episode_success_key=episode_success_key,
             episode_failure_key=episode_failure_key,
         )
         listener.start()
         logging.warning(
             "Using terminal keyboard controls over the current TTY: Right/Left/Esc or "
-            "n=next, r=re-record, q=quit; i=intervention, s=success, f=failure."
+            "n=next, r=re-record, q=quit; intervention and episode-label keys as configured."
         )
         return listener, events
 
