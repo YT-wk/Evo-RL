@@ -449,11 +449,17 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                 raise ValueError(
                     "`policy_sync_to_teleop=true` requires exactly one teleoperator with send_feedback support."
                 )
-            policy_sync_executor = PolicySyncDualArmExecutor(
-                robot=robot,
-                teleop=teleop,
-                parallel_dispatch=cfg.policy_sync_parallel,
-            )
+            if teleop.feedback_features:
+                policy_sync_executor = PolicySyncDualArmExecutor(
+                    robot=robot,
+                    teleop=teleop,
+                    parallel_dispatch=cfg.policy_sync_parallel,
+                )
+            else:
+                logging.warning(
+                    "Policy-to-leader feedback is disabled because %s does not expose feedback features.",
+                    teleop.name,
+                )
 
         listener, events = init_keyboard_listener(
             intervention_toggle_key=cfg.intervention_toggle_key,

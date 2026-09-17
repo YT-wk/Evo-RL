@@ -450,6 +450,7 @@ def test_policy_sync_dual_arm_executor():
     robot = MagicMock()
     robot.send_action.return_value = {"motor_1.pos": 10.0}
     teleop = MagicMock()
+    teleop.feedback_features = {"motor_1.pos": float}
 
     executor = PolicySyncDualArmExecutor(robot=robot, teleop=teleop, parallel_dispatch=True)
     action = {"motor_1.pos": 10.0}
@@ -459,6 +460,37 @@ def test_policy_sync_dual_arm_executor():
     assert sent_action == action
     robot.send_action.assert_called_once_with(action)
     teleop.send_feedback.assert_called_once_with(action)
+
+
+@pytest.mark.parametrize("parallel_dispatch", [False, True])
+def test_policy_sync_dual_arm_executor_skips_unsupported_feedback(parallel_dispatch):
+    robot = MagicMock()
+    robot.send_action.return_value = {"motor_1.pos": 10.0}
+    teleop = MagicMock()
+    teleop.feedback_features = {}
+    teleop.send_feedback.side_effect = NotImplementedError
+
+    executor = PolicySyncDualArmExecutor(robot=robot, teleop=teleop, parallel_dispatch=parallel_dispatch)
+    action = {"motor_1.pos": 10.0}
+    sent_action = executor.send_action(action)
+    executor.shutdown()
+
+    assert sent_action == action
+    robot.send_action.assert_called_once_with(action)
+    teleop.send_feedback.assert_not_called()
+
+
+def test_policy_sync_dual_arm_executor_propagates_supported_feedback_errors():
+    robot = MagicMock()
+    robot.send_action.return_value = {"motor_1.pos": 10.0}
+    teleop = MagicMock()
+    teleop.feedback_features = {"motor_1.pos": float}
+    teleop.send_feedback.side_effect = RuntimeError("feedback transport failed")
+
+    executor = PolicySyncDualArmExecutor(robot=robot, teleop=teleop, parallel_dispatch=True)
+    with pytest.raises(RuntimeError, match="feedback transport failed"):
+        executor.send_action({"motor_1.pos": 10.0})
+    executor.shutdown()
 
 
 def test_record_config_rejects_cfg_without_acp_enable():

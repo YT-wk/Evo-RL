@@ -193,18 +193,25 @@ class PolicySyncDualArmExecutor:
         self.robot = robot
         self.teleop = teleop
         self.parallel_dispatch = parallel_dispatch
+        # An empty feature mapping is the Teleoperator API's capability signal
+        # that continuous policy feedback is unavailable (for example Arm102).
+        self._has_feedback = bool(teleop.feedback_features)
         self._pool = ThreadPoolExecutor(max_workers=2) if parallel_dispatch else None
 
     def send_action(self, action: RobotAction) -> RobotAction:
         if self._pool is None:
             sent_action = self.robot.send_action(action)
-            self.teleop.send_feedback(action)
+            if self._has_feedback:
+                self.teleop.send_feedback(action)
             return sent_action
 
         robot_future = self._pool.submit(self.robot.send_action, action)
-        teleop_future = self._pool.submit(self.teleop.send_feedback, action)
+        teleop_future = (
+            self._pool.submit(self.teleop.send_feedback, action) if self._has_feedback else None
+        )
         sent_action = robot_future.result()
-        teleop_future.result()
+        if teleop_future is not None:
+            teleop_future.result()
         return sent_action
 
     def shutdown(self) -> None:
