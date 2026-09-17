@@ -408,6 +408,31 @@ def test_slow_reset_all_arms_to_pose_uses_interpolation():
     teleop.send_feedback.assert_called()
 
 
+def test_slow_reset_all_arms_to_pose_releases_feedbackless_leader():
+    robot = MockRobot(MockRobotConfig(n_motors=2, random_values=False, static_values=[0.0, 0.0]))
+    teleop = MagicMock()
+    teleop.feedback_features = {}
+    robot.connect()
+    robot.send_action = MagicMock(wraps=robot.send_action)
+    target_pose = {"motor_1.pos": 11.0, "motor_2.pos": -22.0}
+
+    try:
+        _slow_reset_all_arms_to_pose(
+            robot=robot,
+            teleop=teleop,
+            target_pose=target_pose,
+            duration_s=0.2,
+        )
+    finally:
+        if robot.is_connected:
+            robot.disconnect()
+
+    teleop.disable_torque.assert_called_once_with()
+    teleop.move_to.assert_not_called()
+    teleop.send_feedback.assert_not_called()
+    assert robot.send_action.call_args_list[-1].args[0] == target_pose
+
+
 def test_record_and_replay(tmp_path):
     robot_cfg = MockRobotConfig()
     teleop_cfg = MockTeleopConfig()

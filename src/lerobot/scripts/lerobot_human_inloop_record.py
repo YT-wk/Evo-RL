@@ -93,8 +93,19 @@ def _slow_reset_all_arms_to_pose(
     start_pose = {key: current_pose.get(key, float(target_pose[key])) for key in joint_keys}
     goal_pose = {key: float(target_pose[key]) for key in joint_keys}
 
-    if teleop is not None and not isinstance(teleop, list) and hasattr(teleop, "set_manual_control"):
-        teleop.set_manual_control(False)
+    teleop_feedback_enabled = False
+    if teleop is not None and not isinstance(teleop, list):
+        teleop_feedback_enabled = bool(getattr(teleop, "feedback_features", {}))
+        if teleop_feedback_enabled:
+            set_manual_control = getattr(teleop, "set_manual_control", None)
+            if callable(set_manual_control):
+                set_manual_control(False)
+        else:
+            # Arm102 intentionally has no continuous feedback path. It stays
+            # backdrivable while only the B601 follower returns to reset pose.
+            disable_torque = getattr(teleop, "disable_torque", None)
+            if callable(disable_torque):
+                disable_torque()
 
     step_dt_s = 0.05
     steps = max(int(duration_s / step_dt_s), 1)
@@ -102,11 +113,11 @@ def _slow_reset_all_arms_to_pose(
         alpha = idx / steps
         action = {key: start_pose[key] + (goal_pose[key] - start_pose[key]) * alpha for key in joint_keys}
         robot.send_action(action)
-        if teleop is not None and not isinstance(teleop, list):
+        if teleop_feedback_enabled:
             teleop.send_feedback(action)
         time.sleep(step_dt_s)
 
-    logging.info("Episode ended. Arms returned to the stored reset pose in %.1fs.", duration_s)
+    logging.info("Episode ended. Follower returned to the stored reset pose in %.1fs.", duration_s)
 
 
 class _HumanInloopFailureResetController:
