@@ -122,20 +122,16 @@ def _slow_reset_all_arms_to_pose(
 
 class _HumanInloopFailureResetController:
     def __init__(self, cfg: RecordConfig):
-        self.pose_path = _default_failure_reset_pose_path(cfg)
         self.failure_reset_pose: dict[str, float] | None = None
 
     def on_record_connected(self, robot: Any, teleop: Any) -> None:
-        if self.pose_path.is_file():
-            self.failure_reset_pose = _load_failure_reset_pose(self.pose_path)
-            return
-
-        input(
-            "Human-inloop with policy detected.\n"
-            "Please ensure ALL robot arms are at reset position, then press ENTER to capture:\n"
-            f"{self.pose_path}\n"
-        )
-        self.failure_reset_pose = _save_failure_reset_pose(robot=robot, pose_path=self.pose_path)
+        # A rollout must always reset to the B601 pose measured when this
+        # recording command started. Do not reuse a pose from an older run:
+        # that can produce a large, unexpected reset motion.
+        self.failure_reset_pose = _extract_joint_pos_from_observation(robot.get_observation())
+        if not self.failure_reset_pose:
+            raise ValueError("Could not capture rollout reset pose: no '.pos' joints found in observation.")
+        logging.info("Captured in-memory rollout reset pose from the follower at recording startup.")
 
     def on_episode_outcome(self, robot: Any, teleop: Any, episode_success: str | None) -> None:
         if episode_success in {EPISODE_FAILURE, EPISODE_SUCCESS} and self.failure_reset_pose is not None:
@@ -158,6 +154,10 @@ def human_inloop_record(cfg: RecordConfig):
         failure_reset_controller = _HumanInloopFailureResetController(cfg)
         cfg._on_record_connected = failure_reset_controller.on_record_connected
         cfg._on_record_episode_outcome = failure_reset_controller.on_episode_outcome
+        # The custom outcome hook returns the follower to the pose captured
+        # above. The generic reset loop is teleop-only and would otherwise
+        # immediately drive B601 toward the leader's current pose.
+        cfg._skip_post_episode_reset_loop = True
 
     logging.info(
         "Human-in-loop recording is enabled. Press '%s' to toggle takeover. "

@@ -340,7 +340,7 @@ def test_load_failure_reset_pose_from_json(tmp_path):
     assert loaded_pose == {"motor_1.pos": 12.5, "motor_2.pos": -3.0}
 
 
-def test_human_inloop_failure_reset_controller_reuses_existing_pose(tmp_path):
+def test_human_inloop_failure_reset_controller_captures_fresh_startup_pose(tmp_path):
     robot_cfg = MockRobotConfig()
     teleop_cfg = MockTeleopConfig()
     dataset_cfg = DatasetRecordConfig(
@@ -359,19 +359,17 @@ def test_human_inloop_failure_reset_controller_reuses_existing_pose(tmp_path):
         play_sounds=False,
     )
     controller = _HumanInloopFailureResetController(cfg)
-    controller.pose_path = tmp_path / "existing_failure_reset_pose.json"
-    with open(controller.pose_path, "w") as f:
-        json.dump({"joint_pos": {"motor_1.pos": 1.0, "motor_2.pos": -2.0}}, f)
+    robot = MagicMock()
+    robot.get_observation.return_value = {
+        "motor_1.pos": 12.5,
+        "motor_2.pos": -3.0,
+        "camera": np.zeros((1,), dtype=np.uint8),
+    }
 
-    with (
-        patch("builtins.input") as mock_input,
-        patch("lerobot.scripts.lerobot_human_inloop_record._save_failure_reset_pose") as mock_save,
-    ):
-        controller.on_record_connected(robot=MagicMock(), teleop=MagicMock())
+    controller.on_record_connected(robot=robot, teleop=MagicMock())
 
-    assert controller.failure_reset_pose == {"motor_1.pos": 1.0, "motor_2.pos": -2.0}
-    mock_input.assert_not_called()
-    mock_save.assert_not_called()
+    assert controller.failure_reset_pose == {"motor_1.pos": 12.5, "motor_2.pos": -3.0}
+    robot.get_observation.assert_called_once_with()
 
 
 def test_human_inloop_failure_reset_controller_resets_on_success(tmp_path):
