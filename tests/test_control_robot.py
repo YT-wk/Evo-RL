@@ -143,6 +143,25 @@ def test_record_adds_episode_success_and_collector_policy_id(tmp_path):
     assert reloaded.meta.episodes[0]["episode_success"] == "failure"
 
 
+def test_record_config_allows_a_shared_guarded_handoff_key(tmp_path):
+    cfg = RecordConfig(
+        robot=MockRobotConfig(),
+        dataset=DatasetRecordConfig(
+            repo_id=DUMMY_REPO_ID,
+            single_task="Dummy task",
+            root=tmp_path / "shared_handoff_key",
+            push_to_hub=False,
+        ),
+        teleop=MockTeleopConfig(),
+        intervention_toggle_key="i",
+        intervention_confirm_key="i",
+        intervention_alignment_tolerance_deg=15.0,
+        enable_episode_outcome_labeling=True,
+    )
+
+    assert cfg.intervention_toggle_key == cfg.intervention_confirm_key == "i"
+
+
 def test_human_inloop_record_works_without_policy_and_saves_annotations(tmp_path):
     robot_cfg = MockRobotConfig()
     teleop_cfg = MockTeleopConfig()
@@ -489,6 +508,18 @@ def test_policy_sync_dual_arm_executor():
     teleop.send_feedback.assert_called_once_with(action)
 
 
+def test_guarded_handoff_alignment_requires_every_joint_to_be_within_tolerance():
+    follower = {"motor_1.pos": 10.0, "motor_2.pos": -20.0}
+    leader = {"motor_1.pos": 24.9, "motor_2.pos": -36.0}
+
+    aligned, errors = recording_loop_module._leader_is_aligned(
+        list(follower), follower, leader, tolerance_deg=15.0
+    )
+
+    assert not aligned
+    assert errors == {"motor_1.pos": pytest.approx(14.9), "motor_2.pos": pytest.approx(16.0)}
+
+
 def test_guarded_handoff_holds_follower_aligns_once_then_returns_to_policy(monkeypatch):
     class PositionableTeleop(MockTeleop):
         def __init__(self, config):
@@ -530,8 +561,8 @@ def test_guarded_handoff_holds_follower_aligns_once_then_returns_to_policy(monke
         "exit_early": False,
         "rerecord_episode": False,
         "stop_recording": False,
-        "toggle_intervention": False,
-        "prepare_intervention": True,
+        "toggle_intervention": True,
+        "prepare_intervention": False,
         "confirm_intervention": False,
         "episode_outcome": None,
     }
@@ -540,9 +571,9 @@ def test_guarded_handoff_holds_follower_aligns_once_then_returns_to_policy(monke
     def send_action(action):
         sent_actions.append(dict(action))
         if len(sent_actions) == 1:
-            events["confirm_intervention"] = True
+            events["toggle_intervention"] = True
         elif len(sent_actions) == 2:
-            events["prepare_intervention"] = True
+            events["toggle_intervention"] = True
         elif len(sent_actions) == 3:
             events["exit_early"] = True
         return action
@@ -570,6 +601,8 @@ def test_guarded_handoff_holds_follower_aligns_once_then_returns_to_policy(monke
             dataset=dataset,
             control_time_s=1,
             guarded_handoff_enabled=True,
+            guarded_handoff_shared_key=True,
+            intervention_alignment_tolerance_deg=15.0,
             intervention_leader_move_duration_s=0,
             intervention_leader_settle_time_s=0,
             intervention_leader_hold_power=500,

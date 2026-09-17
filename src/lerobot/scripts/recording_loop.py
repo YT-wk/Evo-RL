@@ -60,6 +60,36 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
+def _leader_alignment_errors(
+    action_feature_names: list[str],
+    follower_action: RobotAction,
+    leader_action: RobotAction | None,
+) -> dict[str, float]:
+    """Return per-joint absolute leader/follower errors in action coordinates."""
+    if leader_action is None:
+        return {name: float("inf") for name in action_feature_names}
+
+    errors: dict[str, float] = {}
+    for name in action_feature_names:
+        if name not in follower_action or name not in leader_action:
+            errors[name] = float("inf")
+            continue
+        follower_value = float(np.asarray(follower_action[name], dtype=np.float32).reshape(-1)[0])
+        leader_value = float(np.asarray(leader_action[name], dtype=np.float32).reshape(-1)[0])
+        errors[name] = abs(leader_value - follower_value)
+    return errors
+
+
+def _leader_is_aligned(
+    action_feature_names: list[str],
+    follower_action: RobotAction,
+    leader_action: RobotAction | None,
+    tolerance_deg: float,
+) -> tuple[bool, dict[str, float]]:
+    errors = _leader_alignment_errors(action_feature_names, follower_action, leader_action)
+    return all(error < tolerance_deg for error in errors.values()), errors
+
+
 """ --------------- record_loop() data flow --------------------------
        [ Robot ]
            V
@@ -116,6 +146,8 @@ def record_loop(
     policy_sync_executor: PolicySyncDualArmExecutor | None = None,
     intervention_state_machine_enabled: bool = True,
     guarded_handoff_enabled: bool = False,
+    guarded_handoff_shared_key: bool = False,
+    intervention_alignment_tolerance_deg: float = 15.0,
     intervention_leader_move_duration_s: float = 1.0,
     intervention_leader_settle_time_s: float = 0.2,
     intervention_leader_hold_power: int = 500,
@@ -127,6 +159,8 @@ def record_loop(
 ):
     if acp_inference is None:
         acp_inference = ACPInferenceConfig()
+    if intervention_alignment_tolerance_deg < 0:
+        raise ValueError("intervention_alignment_tolerance_deg must be >= 0")
 
     if dataset is not None and dataset.fps != fps:
         raise ValueError(f"The dataset fps should be equal to requested fps ({dataset.fps} != {fps}).")
@@ -267,6 +301,17 @@ def record_loop(
         if events["exit_early"]:
             events["exit_early"] = False
             break
+
+        if guarded_handoff_enabled and guarded_handoff_shared_key and events.get("toggle_intervention", False):
+            events["toggle_intervention"] = False
+            if not intervention_enabled:
+                logging.info("Intervention key ignored because policy+teleop are not both active.")
+            elif intervention_state == INTERVENTION_STATE_POLICY:
+                events["prepare_intervention"] = True
+            elif intervention_state == INTERVENTION_STATE_PREPARE:
+                events["confirm_intervention"] = True
+            else:
+                events["prepare_intervention"] = True
 
         if guarded_handoff_enabled and events.get("prepare_intervention", False):
             events["prepare_intervention"] = False
@@ -424,9 +469,24 @@ def record_loop(
                     intervention_leader_ready_at - now,
                 )
             else:
-                set_teleop_manual_control(True)
-                intervention_state = INTERVENTION_STATE_ACTIVE
-                logging.info("Leader released; teleop actions now override policy execution.")
+                follower_action = hold_action_from_observation(obs)
+                aligned, alignment_errors = _leader_is_aligned(
+                    action_feature_names,
+                    follower_action,
+                    act_processed_teleop,
+                    intervention_alignment_tolerance_deg,
+                )
+                if not aligned:
+                    max_error = max(alignment_errors.values(), default=float("inf"))
+                    logging.warning(
+                        "Leader/follower alignment exceeds %.1f deg (max %.1f deg); teleop remains blocked.",
+                        intervention_alignment_tolerance_deg,
+                        max_error,
+                    )
+                else:
+                    set_teleop_manual_control(True)
+                    intervention_state = INTERVENTION_STATE_ACTIVE
+                    logging.info("Leader aligned; teleop actions now override policy execution.")
 
         if act_processed_policy is None and act_processed_teleop is None:
             logging.info(

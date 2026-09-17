@@ -103,6 +103,10 @@ class TTYKeyboardListener:
         self.intervention_toggle_key = intervention_toggle_key.lower()
         self.intervention_prepare_key = intervention_prepare_key.lower() if intervention_prepare_key else None
         self.intervention_confirm_key = intervention_confirm_key.lower() if intervention_confirm_key else None
+        self._shared_handoff_key = (
+            self.intervention_prepare_key is not None
+            and self.intervention_prepare_key == self.intervention_confirm_key
+        )
         self.episode_success_key = episode_success_key.lower() if episode_success_key else None
         self.episode_failure_key = episode_failure_key.lower() if episode_failure_key else None
         self._fd = sys.stdin.fileno()
@@ -211,8 +215,12 @@ class TTYKeyboardListener:
             if now - self._last_intervention_time < INTERVENTION_TOGGLE_COOLDOWN_S:
                 return
             self._last_intervention_time = now
-            print(f"'{self.intervention_prepare_key}' key pressed. Preparing intervention handoff...")
-            self.events["prepare_intervention"] = True
+            if self._shared_handoff_key:
+                print(f"'{self.intervention_prepare_key}' key pressed. Advancing guarded intervention...")
+                self.events["toggle_intervention"] = True
+            else:
+                print(f"'{self.intervention_prepare_key}' key pressed. Preparing intervention handoff...")
+                self.events["prepare_intervention"] = True
         elif self.intervention_confirm_key and normalized == self.intervention_confirm_key:
             print(f"'{self.intervention_confirm_key}' key pressed. Confirming intervention handoff...")
             self.events["confirm_intervention"] = True
@@ -328,6 +336,10 @@ def init_keyboard_listener(
 
         def on_press(key):
             try:
+                key_char = getattr(key, "char", None)
+                if key == keyboard.Key.space:
+                    key_char = " "
+                normalized_key_char = key_char.lower() if key_char else None
                 if key == keyboard.Key.right:
                     print("Right arrow key pressed. Exiting loop...")
                     events["exit_early"] = True
@@ -341,25 +353,25 @@ def init_keyboard_listener(
                     events["exit_early"] = True
                 elif (
                     intervention_prepare_key
-                    and hasattr(key, "char")
-                    and key.char
-                    and key.char.lower() == intervention_prepare_key.lower()
+                    and normalized_key_char == intervention_prepare_key.lower()
                 ):
                     now = time.monotonic()
                     if now - last_intervention_time[0] < INTERVENTION_TOGGLE_COOLDOWN_S:
                         return
                     last_intervention_time[0] = now
-                    print(f"'{intervention_prepare_key}' key pressed. Preparing intervention handoff...")
-                    events["prepare_intervention"] = True
+                    if intervention_confirm_key and intervention_prepare_key.lower() == intervention_confirm_key.lower():
+                        print(f"'{intervention_prepare_key}' key pressed. Advancing guarded intervention...")
+                        events["toggle_intervention"] = True
+                    else:
+                        print(f"'{intervention_prepare_key}' key pressed. Preparing intervention handoff...")
+                        events["prepare_intervention"] = True
                 elif (
                     intervention_confirm_key
-                    and hasattr(key, "char")
-                    and key.char
-                    and key.char.lower() == intervention_confirm_key.lower()
+                    and normalized_key_char == intervention_confirm_key.lower()
                 ):
                     print(f"'{intervention_confirm_key}' key pressed. Confirming intervention handoff...")
                     events["confirm_intervention"] = True
-                elif hasattr(key, "char") and key.char and key.char.lower() == intervention_toggle_key.lower():
+                elif normalized_key_char == intervention_toggle_key.lower():
                     now = time.monotonic()
                     if now - last_intervention_time[0] < INTERVENTION_TOGGLE_COOLDOWN_S:
                         return
@@ -368,18 +380,14 @@ def init_keyboard_listener(
                     events["toggle_intervention"] = True
                 elif (
                     episode_success_key
-                    and hasattr(key, "char")
-                    and key.char
-                    and key.char.lower() == episode_success_key.lower()
+                    and normalized_key_char == episode_success_key.lower()
                 ):
                     print(f"'{episode_success_key}' key pressed. Marking episode as success and exiting loop...")
                     events["episode_outcome"] = EPISODE_SUCCESS
                     events["exit_early"] = True
                 elif (
                     episode_failure_key
-                    and hasattr(key, "char")
-                    and key.char
-                    and key.char.lower() == episode_failure_key.lower()
+                    and normalized_key_char == episode_failure_key.lower()
                 ):
                     print(f"'{episode_failure_key}' key pressed. Marking episode as failure and exiting loop...")
                     events["episode_outcome"] = EPISODE_FAILURE

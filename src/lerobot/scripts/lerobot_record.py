@@ -227,6 +227,8 @@ class RecordConfig:
     intervention_toggle_key: str = "i"
     # For positionable leaders such as Arm102, confirm the prepared handoff and release torque.
     intervention_confirm_key: str = " "
+    # Maximum absolute measured leader/follower joint error before teleop can be enabled.
+    intervention_alignment_tolerance_deg: float = 15.0
     # Firmware-interpolated leader alignment timing for guarded Arm102 handoff.
     intervention_leader_move_duration_s: float = 1.0
     intervention_leader_settle_time_s: float = 0.2
@@ -267,12 +269,16 @@ class RecordConfig:
         if self.teleop is None and self.policy is None:
             raise ValueError("Choose a policy, a teleoperator or both to control the robot")
         sanity_check_bimanual_piper_pair(self.robot, self.teleop)
+        if isinstance(self.intervention_toggle_key, str) and self.intervention_toggle_key.lower() == "space":
+            self.intervention_toggle_key = " "
+        if isinstance(self.intervention_confirm_key, str) and self.intervention_confirm_key.lower() == "space":
+            self.intervention_confirm_key = " "
         if not self.intervention_toggle_key or len(self.intervention_toggle_key) != 1:
             raise ValueError("`intervention_toggle_key` must be a single character.")
         if not self.intervention_confirm_key or len(self.intervention_confirm_key) != 1:
             raise ValueError("`intervention_confirm_key` must be a single character.")
-        if self.intervention_confirm_key.lower() == self.intervention_toggle_key.lower():
-            raise ValueError("`intervention_toggle_key` and `intervention_confirm_key` must be distinct.")
+        if self.intervention_alignment_tolerance_deg < 0:
+            raise ValueError("`intervention_alignment_tolerance_deg` must be >= 0.")
         if self.intervention_leader_move_duration_s < 0:
             raise ValueError("`intervention_leader_move_duration_s` must be >= 0.")
         if self.intervention_leader_settle_time_s < 0:
@@ -289,16 +295,18 @@ class RecordConfig:
                 if not key_value or len(key_value) != 1:
                     raise ValueError(f"`{key_name}` must be a single character.")
 
-            normalized_keys = [
+            episode_keys = {self.episode_success_key.lower(), self.episode_failure_key.lower()}
+            if len(episode_keys) != 2:
+                raise ValueError(
+                    "`episode_success_key` and `episode_failure_key` must be distinct."
+                )
+            intervention_keys = {
                 self.intervention_toggle_key.lower(),
                 self.intervention_confirm_key.lower(),
-                self.episode_success_key.lower(),
-                self.episode_failure_key.lower(),
-            ]
-            if len(set(normalized_keys)) != len(normalized_keys):
+            }
+            if intervention_keys & episode_keys:
                 raise ValueError(
-                    "`intervention_toggle_key`, `intervention_confirm_key`, `episode_success_key`, and "
-                    "`episode_failure_key` must be distinct."
+                    "Intervention keys must not overlap with `episode_success_key` or `episode_failure_key`."
                 )
 
         if self.default_episode_success is not None:
@@ -519,6 +527,11 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     policy_sync_executor=policy_sync_executor,
                     intervention_state_machine_enabled=cfg.intervention_state_machine_enabled,
                     guarded_handoff_enabled=guarded_handoff_enabled,
+                    guarded_handoff_shared_key=(
+                        guarded_handoff_enabled
+                        and cfg.intervention_toggle_key.lower() == cfg.intervention_confirm_key.lower()
+                    ),
+                    intervention_alignment_tolerance_deg=cfg.intervention_alignment_tolerance_deg,
                     intervention_leader_move_duration_s=cfg.intervention_leader_move_duration_s,
                     intervention_leader_settle_time_s=cfg.intervention_leader_settle_time_s,
                     intervention_leader_hold_power=cfg.intervention_leader_hold_power,
