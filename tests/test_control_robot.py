@@ -41,6 +41,8 @@ from lerobot.scripts.lerobot_record import (
     RecordConfig,
     _capture_policy_runtime_state,
     _predict_policy_action_with_acp_inference,
+    _safe_home_before_rerecord,
+    _should_discard_stopped_episode,
     record,
     record_loop,
 )
@@ -518,6 +520,11 @@ def test_guarded_handoff_alignment_requires_every_joint_to_be_within_tolerance()
     assert errors == {"motor_1.pos": pytest.approx(14.9), "motor_2.pos": pytest.approx(16.0)}
 
 
+def test_guarded_handoff_prepare_time_is_excluded_from_episode_budget():
+    assert recording_loop_module._episode_elapsed_s(100.0, 5.0, None, 120.0) == 15.0
+    assert recording_loop_module._episode_elapsed_s(100.0, 5.0, 118.0, 120.0) == 13.0
+
+
 def test_guarded_handoff_holds_follower_aligns_once_then_returns_to_policy(monkeypatch):
     class PositionableTeleop(MockTeleop):
         def __init__(self, config):
@@ -622,6 +629,31 @@ def test_guarded_handoff_holds_follower_aligns_once_then_returns_to_policy(monke
         call(True),
         call(False),
     ]
+    # The follower hold used while Arm102 moves into alignment is not dataset data.
+    assert dataset.add_frame.call_count == 2
+
+
+def test_stopped_episode_is_discarded_only_without_an_explicit_label():
+    assert _should_discard_stopped_episode({"stop_recording": True, "episode_outcome": None})
+    assert not _should_discard_stopped_episode({"stop_recording": True, "episode_outcome": "success"})
+    assert not _should_discard_stopped_episode({"stop_recording": False, "episode_outcome": None})
+
+
+def test_rerecord_runs_safe_home_before_discarding_episode():
+    robot = MagicMock()
+    robot.safe_home.return_value = True
+
+    _safe_home_before_rerecord(robot)
+
+    robot.safe_home.assert_called_once_with()
+
+
+def test_rerecord_stops_when_safe_home_fails():
+    robot = MagicMock()
+    robot.safe_home.return_value = False
+
+    with pytest.raises(RuntimeError, match="Safe-home failed"):
+        _safe_home_before_rerecord(robot)
 
 
 @pytest.mark.parametrize("parallel_dispatch", [False, True])

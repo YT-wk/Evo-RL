@@ -90,6 +90,17 @@ def _leader_is_aligned(
     return all(error < tolerance_deg for error in errors.values()), errors
 
 
+def _episode_elapsed_s(
+    episode_started_t: float,
+    paused_duration_s: float,
+    prepare_started_t: float | None,
+    now: float,
+) -> float:
+    """Return recorded episode time while excluding guarded-handoff preparation."""
+    active_pause_s = 0.0 if prepare_started_t is None else now - prepare_started_t
+    return max(now - episode_started_t - paused_duration_s - active_pause_s, 0.0)
+
+
 """ --------------- record_loop() data flow --------------------------
        [ Robot ]
            V
@@ -209,6 +220,8 @@ def record_loop(
     intervention_leader_target: RobotAction | None = None
     intervention_leader_ready_at: float | None = None
     intervention_confirmation_pending = False
+    intervention_prepare_started_t: float | None = None
+    intervention_prepare_paused_duration_s = 0.0
 
     teleop_arm_for_mode_switch: Any | None = None
     if isinstance(teleop, Teleoperator):
@@ -232,6 +245,12 @@ def record_loop(
             name: float(np.asarray(observation[name], dtype=np.float32).reshape(-1)[0])
             for name in action_feature_names
         }
+
+    def end_intervention_prepare_pause() -> None:
+        nonlocal intervention_prepare_paused_duration_s, intervention_prepare_started_t
+        if intervention_prepare_started_t is not None:
+            intervention_prepare_paused_duration_s += time.perf_counter() - intervention_prepare_started_t
+            intervention_prepare_started_t = None
 
     if policy is None:
         # During reset/teleop-only loops keep leader backdrivable for manual dragging.
@@ -294,7 +313,7 @@ def record_loop(
                 time.sleep(min(sleep_s, remaining_s))
 
     timestamp = 0
-    start_episode_t = time.perf_counter()
+    episode_started_t = time.perf_counter()
     while timestamp < control_time_s:
         start_loop_t = time.perf_counter()
 
@@ -318,6 +337,7 @@ def record_loop(
             if intervention_enabled:
                 if intervention_state == INTERVENTION_STATE_POLICY:
                     intervention_state = INTERVENTION_STATE_PREPARE
+                    intervention_prepare_started_t = time.perf_counter()
                     intervention_hold_action = None
                     intervention_leader_target = None
                     intervention_leader_ready_at = None
@@ -327,6 +347,7 @@ def record_loop(
                         "Intervention prepared: follower will hold its measured pose while the leader aligns once."
                     )
                 elif intervention_state == INTERVENTION_STATE_PREPARE:
+                    end_intervention_prepare_pause()
                     cancel_teleop_handoff(teleop_arm_for_mode_switch)
                     intervention_state = INTERVENTION_STATE_RELEASE
                     intervention_hold_action = None
@@ -484,6 +505,7 @@ def record_loop(
                         max_error,
                     )
                 else:
+                    end_intervention_prepare_pause()
                     set_teleop_manual_control(True)
                     intervention_state = INTERVENTION_STATE_ACTIVE
                     logging.info("Leader aligned; teleop actions now override policy execution.")
@@ -560,7 +582,12 @@ def record_loop(
             )
 
         # Write to dataset
-        if dataset is not None:
+        record_intervention_prepare = not (
+            intervention_enabled
+            and guarded_handoff_enabled
+            and intervention_state == INTERVENTION_STATE_PREPARE
+        )
+        if dataset is not None and record_intervention_prepare:
             action_frame = build_dataset_frame(dataset.features, action_values, prefix=ACTION)
             policy_action_frame = build_dataset_frame(
                 dataset.features, policy_action_for_storage, prefix="complementary_info.policy_action"
@@ -592,4 +619,9 @@ def record_loop(
         dt_s = time.perf_counter() - start_loop_t
         precise_sleep(max(1 / fps - dt_s, 0.0))
 
-        timestamp = time.perf_counter() - start_episode_t
+        timestamp = _episode_elapsed_s(
+            episode_started_t,
+            intervention_prepare_paused_duration_s,
+            intervention_prepare_started_t,
+            time.perf_counter(),
+        )

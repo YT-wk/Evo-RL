@@ -150,6 +150,22 @@ except (ImportError, TypeError) as error:
     logging.warning("Unitree G1 CLI registration is unavailable: %s", error)
 
 
+def _safe_home_before_rerecord(robot: Robot) -> None:
+    """Use the robot's normal shutdown return path before discarding a rollout."""
+    safe_home = getattr(robot, "safe_home", None)
+    if not callable(safe_home):
+        return
+
+    logging.info("Re-record requested: returning robot through its safe-home sequence.")
+    if safe_home() is False:
+        raise RuntimeError("Safe-home failed before re-record; robot remains enabled for manual recovery.")
+
+
+def _should_discard_stopped_episode(events: dict) -> bool:
+    """Discard an interrupted rollout unless the operator explicitly labeled it."""
+    return bool(events.get("stop_recording")) and events.get("episode_outcome") is None
+
+
 @dataclass
 class DatasetRecordConfig:
     # Dataset identifier. By convention it should match '{hf_username}/{dataset_name}' (e.g. `lerobot/test`).
@@ -542,6 +558,22 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     communication_retry_interval_s=cfg.communication_retry_interval_s,
                 )
 
+                if events["rerecord_episode"]:
+                    _safe_home_before_rerecord(robot)
+                    log_say("Re-record episode", cfg.play_sounds)
+                    events["rerecord_episode"] = False
+                    events["exit_early"] = False
+                    events["episode_outcome"] = None
+                    dataset.clear_episode_buffer()
+                    continue
+
+                if _should_discard_stopped_episode(events):
+                    logging.info(
+                        "Recording stopped without an explicit success/failure label; discarding current episode."
+                    )
+                    dataset.clear_episode_buffer()
+                    break
+
                 episode_success = None
                 if cfg.enable_episode_outcome_labeling:
                     episode_success = resolve_episode_success_label(
@@ -596,14 +628,6 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                         communication_retry_timeout_s=cfg.communication_retry_timeout_s,
                         communication_retry_interval_s=cfg.communication_retry_interval_s,
                     )
-
-                if events["rerecord_episode"]:
-                    log_say("Re-record episode", cfg.play_sounds)
-                    events["rerecord_episode"] = False
-                    events["exit_early"] = False
-                    events["episode_outcome"] = None
-                    dataset.clear_episode_buffer()
-                    continue
 
                 extra_episode_metadata = (
                     {"episode_success": episode_success} if cfg.enable_episode_outcome_labeling else None
