@@ -83,6 +83,7 @@ from lerobot.datasets.video_utils import VideoEncodingManager
 from lerobot.processor import make_default_processors
 from lerobot.processor.rename_processor import rename_stats
 from lerobot.robots import (  # noqa: F401
+    Robot,
     RobotConfig,
     bi_openarm_follower,
     bi_rebot_b601_follower,
