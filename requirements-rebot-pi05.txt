@@ -1,0 +1,9 @@
+# Tested Linux runtime for reBot B601-DM / Arm102 collection and PI05 training.
+# Install from the repository root:
+#   pip install -r requirements-rebot-pi05.txt
+#
+# The editable extra owns the exact compatibility pins. Do not combine this
+# environment with requirements-ubuntu.txt or requirements-macos.txt: those
+# files describe the broader upstream feature set, whose Pinocchio and
+# Transformers requirements conflict with this hardware + PI05 combination.
+-e .[rebot-pi05]

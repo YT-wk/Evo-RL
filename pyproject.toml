@@ -61,7 +61,8 @@ dependencies = [
     # Hugging Face dependencies
     "datasets>=4.0.0,<4.2.0",
     "diffusers>=0.27.2,<0.36.0",
-    "huggingface-hub[hf-transfer,cli]>=0.34.2,<0.36.0",
+    # 0.36.2 is the tested companion of the patched PI05 Transformers build.
+    "huggingface-hub[hf-transfer,cli]>=0.34.2,<0.37.0",
     "accelerate>=1.10.0,<2.0.0",
 
     # Core dependencies
@@ -99,14 +100,15 @@ pygame-dep = ["pygame>=2.5.1,<2.7.0"]
 placo-dep = ["placo>=0.9.6,<0.10.0"]
 transformers-dep = ["transformers>=4.57.1,<5.0.0"]
 grpcio-dep = ["grpcio==1.73.1", "protobuf>=6.31.1,<6.32.0"]
+swanlab = ["swanlab==0.10.1"]
 
 # Motors
 feetech = ["feetech-servo-sdk>=1.0.0,<2.0.0"]
 dynamixel = ["dynamixel-sdk>=3.7.31,<3.9.0"]
 damiao = ["python-can>=4.2.0,<5.0.0"]
-motorbridge-dep = ["motorbridge>=0.5.1,<0.6.0"]
-motorbridge-smart-servo-dep = ["motorbridge-smart-servo>=0.0.4,<0.1.0"]
-pinocchio-dep = ["pin>=4.1.0,<5.0.0"]
+motorbridge-dep = ["motorbridge==0.5.5"]
+motorbridge-smart-servo-dep = ["motorbridge-smart-servo==0.0.4"]
+pinocchio-dep = ["pin==4.1.0"]
 
 # Robots
 openarms = ["lerobot[damiao]"]
@@ -138,7 +140,16 @@ wallx = [
     "torchdiffeq==0.2.5",
     "qwen_vl_utils==0.0.11"
 ]
-pi = ["transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi", "scipy>=1.10.1,<1.15"]
+# PI05 requires LeRobot's patched OpenPI Transformers implementation. Keep the
+# tested commit and its compatible tokenizer rather than resolving an arbitrary
+# current Transformers release.
+pi = [
+    "transformers @ git+https://github.com/huggingface/transformers.git@dcddb970176382c0fcf4521b0c0e6fc15894dfe0",
+    "tokenizers==0.21.4",
+    "huggingface-hub==0.36.2",
+    "scipy>=1.10.1,<1.15",
+]
+rebot-pi05 = ["lerobot[rebot]", "lerobot[pi]", "lerobot[swanlab]"]
 smolvla = ["lerobot[transformers-dep]", "num2words>=0.5.14,<0.6.0", "accelerate>=1.7.0,<2.0.0", "safetensors>=0.4.3,<1.0.0"]
 groot = [
     "lerobot[transformers-dep]",

@@ -1,594 +1,327 @@
-<h1 align="center">Evo-RL</h1>
+# Evo-RL for reBot B601-DM
+
+This fork of Evo-RL adds a LeRobot-compatible hardware path for the reBot Arm
+B601-DM follower and the reBot Arm 102 leader. It supports single and dual
+arms, calibration, teleoperation, recording, replay, human-in-the-loop policy
+rollouts, value learning, advantage-conditioned policy training, and SwanLab
+visualization.
+
+The B601-DM MIT control path computes the SDK URDF's Pinocchio gravity vector
+from the latest measured joint positions and sends it as non-zero torque
+feedforward for the six arm joints. The gripper remains on its own configured
+control path.
+
+## Supported devices
+
+| LeRobot type | Device | Action / observation layout |
+| --- | --- | --- |
+| `rebot_b601_follower` | One B601-DM follower | 7 joints |
+| `bi_rebot_b601_follower` | Two B601-DM followers | `left_*` then `right_*`, 14 joints |
+| `rebot_102_leader` | One Arm 102 leader | 7 joints |
+| `bi_rebot_102_leader` | Two Arm 102 leaders | `left_*` then `right_*`, 14 joints |
+
+The Arm 102 maps its calibrated joint directions and gripper travel to the
+same joint convention and limits as the B601-DM. The standard LeRobot dataset
+schema is unchanged, so recording, replay, and training use the normal
+`action`, `observation.state`, camera, and episode fields.
+
+### Arm 102 leader
 
 <p align="center">
-  <a href="https://MINT-SJTU.github.io/Evo-RL/"><img alt="project website" src="https://img.shields.io/badge/Project-Website-0ea5e9"/></a>
-  <a href="https://github.com/huggingface/lerobot"><img alt="lerobot version" src="https://img.shields.io/badge/LeRobot-0.4.4-f59e0b"/></a>
-  <a href="https://evorl.example.com/wechat-post"><img alt="wechat post" src="https://img.shields.io/badge/WeChat-Official%20Post-07c160"/></a>
-  <a href="#community-channels"><img alt="wechat group join us" src="https://img.shields.io/badge/WeChat%20Group-Join%20Us-a855f7?logo=wechat&logoColor=white"/></a>
-  <a href="#citation"><img alt="paper coming soon" src="https://img.shields.io/static/v1?label=Paper&message=Coming%20Soon&color=9ca3af"/></a>
-  <a href="#model--dataset"><img alt="hugging face model coming soon" src="https://img.shields.io/static/v1?label=%F0%9F%A4%97%20Model&message=Coming%20Soon&color=9ca3af"/></a>
-  <a href="https://huggingface.co/datasets/MINT-SJTU/RW-RL-Dataset"><img alt="RW-RL dataset on Hugging Face" src="https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-RW--RL-ffcc4d"/></a>
-  <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/License-Apache--2.0-ef4444"/></a>
+  <img src="website/assets/images/star-arm-102-hd-leader.png" alt="Fashion Star Arm 102-HD leader arm" width="560" />
 </p>
 
-<p align="center"><strong>SJTU &amp; Evo-Tech</strong></p>
+The supported leader is the Fashion Star Star Arm 102-HD, connected through
+its UART smart-servo bus.
 
-<p align="center"><strong>Architecture Overview</strong></p>
+## Installation
 
-<p align="center">
-  <img alt="Evo-RL Pipeline Overview" src="./website/assets/images/overview.png" width="96%"/>
-</p>
+### 1. Create the environment
 
-## 🎯 Evo-RL Focus
-
-- **Open real-world RL on two platforms**: we build and release full real-world RL pipelines on SO101 and AgileX (PiPER/PiPER-X).
-- **Open code, models, and datasets for reproducibility**: we continuously release runnable offline RL assets so more people can reproduce results and apply them to real-world tasks.
-- **Open algorithm and community co-evolution**: we reproduce existing real-world RL methods, propose new methods, and keep publishing data/benchmarks to grow a collaborative open-source community.
-
-## 🚀 News
-
-- **[2026-06-30]** Added a detailed Hugging Face dataset card for the RW-RL Dataset, including visual examples, release statistics, file layout, modalities, and download instructions.
-- **[2026-03-07]** Added AgileX (PiPER/PiPER-X) support for real-world RL.
-- **[2026-02-26]** First SO101 real-world RL baseline and reproducible CLI workflow are released.
-
-## 🧭 Table of Contents
-
-| Getting Started                        | Training Pipeline                                                            | Project Info                                |
-| -------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------- |
-| [⚡ Quick Start](#quick-start)         | [4) Value Function Training](#value-function-training)                       | [Model & Dataset](#model--dataset)          |
-| [1) Installation](#installation)       | [5) Value Inference](#value-inference)                                       | [Community Channels](#community-channels)   |
-| [2) Hardware Setup](#hardware-setup)   | [6) Policy Training](#policy-training)                                       | [Affiliations](#affiliations)               |
-| [3) Data Collection](#data-collection) | [7) Closed-loop Rollout and Next Round](#closed-loop-rollout-and-next-round) | [Citation](#citation) / [License](#license) |
-
-<p align="center"><strong>Value Visual Results</strong></p>
-
-<p align="center"><small><strong>Success Case</strong></small></p>
-
-<p align="center">
-  <img alt="Value Overlay Success Episode 0405" src="./website/assets/gifs/value_success.gif" width="96%"/>
-</p>
-
-<p align="center"><small><strong>Failure Case</strong></small></p>
-
-<p align="center">
-  <img alt="Value Overlay Failure Episode 0697" src="./website/assets/gifs/value_failure.gif" width="96%"/>
-</p>
-
-<p align="center"><strong>Policy Rollout Visual Results</strong></p>
-
-<p align="center">
-  <img alt="Policy Rollout Result 1" src="./website/assets/gifs/policy_rollout_1.gif" width="48%"/>
-  <img alt="Policy Rollout Result 2" src="./website/assets/gifs/policy_rollout_2.gif" width="48%"/>
-</p>
-
-<p align="center"><strong>Human-in-the-Loop Visual Results</strong></p>
-
-<p align="center">
-  <img alt="Human-in-the-Loop Result 1" src="./website/assets/gifs/hitl_1.gif" width="48%"/>
-  <img alt="Human-in-the-Loop Result 2" src="./website/assets/gifs/hitl_2.gif" width="48%"/>
-</p>
-
-<a id="quick-start"></a>
-
-## ⚡ Quick Start
-
-**LeRobot-aligned foundation:** we use LeRobot as the base of this codebase because its inference and data-collection logic are highly aligned with real-world RL workflows.
-
-<a id="installation"></a>
-
-### 1) Installation
+Use Python 3.10. The `requirements-rebot-pi05.txt` entry point is the tested
+combination for this repository: reBot hardware dependencies, the patched
+PI05/OpenPI Transformers build, and SwanLab.
 
 ```bash
-git clone https://github.com/MINT-SJTU/Evo-RL.git
+git clone <YOUR_FORK_URL>
 cd Evo-RL
+
 conda create -y -n evo-rl python=3.10
 conda activate evo-rl
-pip install -e .
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements-rebot-pi05.txt
 ```
 
-For setup details and platform-specific dependencies, follow the official [LeRobot configuration guide](https://huggingface.co/docs/lerobot/installation).
+For an existing environment that previously installed a different
+Transformers build, reinstall the tested extra so pip replaces incompatible
+packages:
 
-<a id="hardware-setup"></a>
+```bash
+python -m pip install --upgrade --force-reinstall -e '.[rebot-pi05]'
+python -m pip check
+```
 
-### 2) Hardware Setup
+Do **not** install `requirements-ubuntu.txt`, `requirements-macos.txt`, or
+`.[all]` into this environment. They target the broad upstream LeRobot feature
+set and currently select incompatible requirements for this route (notably
+Pinocchio 3.x and standard Transformers). `rebot-pi05` is intentionally
+focused on the runnable B601-DM / Arm102 / PI05 workflow.
 
-#### SO Series (SO100/SO101)
+### 2. Verified dependency set
 
-For SO-series setup, please follow the [official tutorial](https://wiki.seeedstudio.com/cn/lerobot_so100m/) in detail and complete all installation and configuration steps there before continuing.
-The examples below use **SO101** as the reference configuration.
+The following versions were used for the two-A100 value-training, value
+inference, and PI05 policy-training smoke run:
 
-#### Device path recommendation
+| Package | Version |
+| --- | --- |
+| Python | 3.10 |
+| `transformers` | patched `fix/lerobot_openpi` commit `dcddb970176382c0fcf4521b0c0e6fc15894dfe0` (`4.53.3`) |
+| `tokenizers` | `0.21.4` |
+| `huggingface-hub` | `0.36.2` |
+| `pin` (Pinocchio) | `4.1.0` |
+| `motorbridge` | `0.5.5` |
+| `motorbridge-smart-servo` | `0.0.4` |
+| `swanlab` | `0.10.1` |
 
-Recommended path strategy:
+The custom Transformers build is required by PI05. Using a recent stock
+Transformers release can produce an `incorrect transformer version` error;
+using a mismatched `huggingface-hub` can fail during import. The pinned extra
+prevents both cases.
 
-- **Robot serial:** use `/dev/serial/by-id/` (stable across reboots).
-- **Cameras:** prefer `/dev/v4l/by-id/`; if IDs are not unique, use `/dev/v4l/by-path/`.
-- In examples below: robot ports use `by-id`, camera paths use `by-path`.
+### 3. Configure B601 gravity feedforward
 
-You can inspect available stable paths with:
+MIT mode requires the `ReBot_Arm_DM.urdf` from the reBot SDK. Set one of these
+variables before connecting a B601-DM:
+
+```bash
+# Preferred: path to the SDK root containing urdf/DM/urdf/ReBot_Arm_DM.urdf
+export REBOT_GRAVITY_SDK_ROOT=/path/to/reBotArm_control_py
+
+# Or point directly at the URDF.
+# export REBOT_GRAVITY_URDF=/path/to/ReBot_Arm_DM.urdf
+```
+
+If the model cannot be loaded, or valid joint feedback is unavailable, a MIT
+command is rejected rather than silently sending zero gravity torque. Confirm
+the gravity-torque signs with the arm mechanically supported before any normal
+teleoperation or replay.
+
+### 4. Optional SwanLab login
+
+For cloud visualization, authenticate in the local user account. Do not put a
+token in source files, shell history, or the repository.
+
+```bash
+swanlab login
+```
+
+This stores the login under the user's home directory. The training pipeline
+also supports `--swanlab-mode local`, `offline`, or `disabled` when cloud
+upload is not desired.
+
+## Hardware setup
+
+On Linux, verify stable device paths and grant the user serial-device access:
 
 ```bash
 ls -l /dev/serial/by-id/
-ls -l /dev/v4l/by-id/
-ls -l /dev/v4l/by-path/
+ls -l /dev/ttyACM* /dev/ttyUSB*
+sudo usermod -aG dialout "$USER"
 ```
 
-For single-arm users, no major changes are required. After setup, run the command below to verify your system is ready for the next stage:
+Log out and back in after changing group membership. The examples below use
+temporary `/dev/ttyACM*` and `/dev/ttyUSB*` paths for clarity; use
+`/dev/serial/by-id/...` in long-lived deployments.
+
+### Calibration
+
+Calibrate each follower and leader independently. The `id` becomes part of the
+calibration-file identity, so use stable, distinct names for the two sides.
+
+```bash
+# B601-DM follower
+lerobot-calibrate \
+  --robot.type=rebot_b601_follower \
+  --robot.port=/dev/ttyACM0 \
+  --robot.id=b601_left
+
+# Arm 102 leader
+lerobot-calibrate \
+  --teleop.type=rebot_102_leader \
+  --teleop.port=/dev/ttyUSB0 \
+  --teleop.id=arm102_left
+```
+
+### Dual-arm teleoperation
+
+Keep the workspace clear for the first run. B601 MIT mode applies non-zero
+gravity feedforward, including during the safe-home lifecycle.
 
 ```bash
 lerobot-teleoperate \
-  --robot.type=so101_follower \
-  --robot.port=/dev/serial/by-id/<SO101_FOLLOWER_PORT> \
-  --robot.id=my_so101_follower \
-  --teleop.type=so101_leader \
-  --teleop.port=/dev/serial/by-id/<SO101_LEADER_PORT> \
-  --teleop.id=my_so101_leader
+  --robot.type=bi_rebot_b601_follower \
+  --robot.left_arm_config.port=/dev/ttyACM0 \
+  --robot.right_arm_config.port=/dev/ttyACM1 \
+  --robot.id=evorl_b601 \
+  --teleop.type=bi_rebot_102_leader \
+  --teleop.left_arm_config.port=/dev/ttyUSB0 \
+  --teleop.right_arm_config.port=/dev/ttyUSB1 \
+  --teleop.id=evorl_arm102
 ```
 
-For dual-arm users, we recommend mirroring the mechanical parts corresponding to servos 4/5/6 on the left leader and left follower arms, which usually provides a more natural bimanual operation feel.
+For a single arm, replace the two `bi_*` types with `rebot_b601_follower` and
+`rebot_102_leader`, and pass `--robot.port` and `--teleop.port`.
 
-Before running the dual-arm command, make sure calibration files exist under `~/.cache/huggingface/lerobot/calibration/` like:
+## Data collection and replay
 
-```text
-calibration/
-├── robots
-│   └── so_follower
-│       ├── bi_so101_follower_left.json
-│       └── bi_so101_follower_right.json
-└── teleoperators
-    └── so_leader
-        ├── bi_so101_leader_left.json
-        └── bi_so101_leader_right.json
-```
+### Record demonstrations
 
-This layout is slightly different from single-arm setup.
-
-Then run this command to verify dual-arm setup:
+This dual-arm example stores a local dataset and associates one wrist camera
+with each arm plus a front camera. Adapt the camera paths, task, and episode
+settings to the workstation.
 
 ```bash
-lerobot-teleoperate \
-  --robot.type=bi_so_follower \
-  --robot.left_arm_config.port=/dev/serial/by-id/<LEFT_FOLLOWER_PORT> \
-  --robot.right_arm_config.port=/dev/serial/by-id/<RIGHT_FOLLOWER_PORT> \
-  --robot.id=bi_so101_follower \
-  --teleop.type=bi_so_leader \
-  --teleop.left_arm_config.port=/dev/serial/by-id/<LEFT_LEADER_PORT> \
-  --teleop.right_arm_config.port=/dev/serial/by-id/<RIGHT_LEADER_PORT> \
-  --teleop.id=bi_so101_leader
+lerobot-record \
+  --robot.type=bi_rebot_b601_follower \
+  --robot.left_arm_config.port=/dev/ttyACM0 \
+  --robot.right_arm_config.port=/dev/ttyACM1 \
+  --robot.id=evorl_b601 \
+  --robot.left_arm_config.cameras='{wrist: {type: opencv, index_or_path: "/dev/video-left", width: 640, height: 480, fps: 30, fourcc: "MJPG"}}' \
+  --robot.right_arm_config.cameras='{wrist: {type: opencv, index_or_path: "/dev/video-right", width: 640, height: 480, fps: 30, fourcc: "MJPG"}, front: {type: opencv, index_or_path: "/dev/video-front", width: 640, height: 480, fps: 30, fourcc: "MJPG"}}' \
+  --teleop.type=bi_rebot_102_leader \
+  --teleop.left_arm_config.port=/dev/ttyUSB0 \
+  --teleop.right_arm_config.port=/dev/ttyUSB1 \
+  --teleop.id=evorl_arm102 \
+  --dataset.repo_id=local/my_b601_task \
+  --dataset.single_task="pick and place an object" \
+  --dataset.num_episodes=20 \
+  --dataset.episode_time_s=60 \
+  --dataset.reset_time_s=5 \
+  --dataset.push_to_hub=false \
+  --display_data=false
 ```
 
-#### Camera configuration
+### Human-in-the-loop rollout
 
-Before data collection, validate camera mapping first.
-
-Check whether each camera supports your target setting (for example, `640x480 @ 30`):
-
-```bash
-v4l2-ctl -d /dev/v4l/by-path/<CAM_PATH> --list-formats-ext
-```
-
-Single-arm camera check (example):
-
-```bash
-lerobot-teleoperate \
-  --robot.type=so101_follower \
-  --robot.port=/dev/serial/by-id/<SO101_FOLLOWER_PORT> \
-  --robot.id=my_so101_follower \
-  --robot.cameras='{ front: {type: opencv, index_or_path: "/dev/v4l/by-path/<FRONT_CAM>", width: 640, height: 480, fps: 30}}' \
-  --teleop.type=so101_leader \
-  --teleop.port=/dev/serial/by-id/<SO101_LEADER_PORT> \
-  --teleop.id=my_so101_leader \
-  --display_data=true
-```
-
-Dual-arm camera check (example):
-
-```bash
-lerobot-teleoperate \
-  --robot.type=bi_so_follower \
-  --robot.left_arm_config.port=/dev/serial/by-id/<LEFT_FOLLOWER_PORT> \
-  --robot.right_arm_config.port=/dev/serial/by-id/<RIGHT_FOLLOWER_PORT> \
-  --robot.id=my_bi_so101_follower \
-  --robot.left_arm_config.cameras='{ wrist: {type: opencv, index_or_path: "/dev/v4l/by-path/<LEFT_WRIST_CAM_PATH>", width: 640, height: 480, fps: 30}}' \
-  --robot.right_arm_config.cameras='{ wrist: {type: opencv, index_or_path: "/dev/v4l/by-path/<RIGHT_WRIST_CAM_PATH>", width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: "/dev/v4l/by-path/<FRONT_CAM_PATH>", width: 640, height: 480, fps: 30}}' \
-  --teleop.type=bi_so_leader \
-  --teleop.left_arm_config.port=/dev/serial/by-id/<LEFT_LEADER_PORT> \
-  --teleop.right_arm_config.port=/dev/serial/by-id/<RIGHT_LEADER_PORT> \
-  --teleop.id=my_bi_so101_leader \
-  --display_data=true
-```
-
-For dual-arm camera mapping, it is fine to attach `front` under either the left-arm or right-arm camera config. If you use more camera views, place them under either the left or right arm camera config as well.
-
-If needed, you can also use temporary device paths (for example `/dev/ttyACM*` and `/dev/video*`) during initial debugging.
-
-<a id="agilex-piper-setup"></a>
-
-#### AgileX (PiPER/PiPER-X)
-
-PiPER commands use the USB-CAN adapter's stable `ID_SERIAL_SHORT` instead of a temporary Linux
-`canN` name. List the connected adapters with:
-
-```bash
-for device in /sys/class/net/*; do
-  [ "$(cat "$device/type" 2>/dev/null)" = "280" ] || continue
-  serial=$(udevadm info --query=property --path="$device" | sed -n 's/^ID_SERIAL_SHORT=//p')
-  echo "$(basename "$device"): $serial"
-done
-```
-
-Then configure the adapters needed for the run:
-
-```bash
-lerobot-setup-can --mode=setup \
-  --usb_can_serials=<USB_CAN_SERIAL_1>,<USB_CAN_SERIAL_2>,<USB_CAN_SERIAL_3>,<USB_CAN_SERIAL_4>
-```
-
-For single-arm users, run the command below to verify the system is ready:
-
-```bash
-lerobot-teleoperate \
-  --robot.type=piperx_follower \
-  --robot.port=<FOLLOWER_USB_CAN_SERIAL> \
-  --robot.id=my_piperx_follower \
-  --teleop.type=piperx_leader \
-  --teleop.port=<LEADER_USB_CAN_SERIAL> \
-  --teleop.id=my_piperx_leader
-```
-
-For bimanual users, run this command to verify dual-arm teleoperation:
-
-```bash
-lerobot-teleoperate \
-  --robot.type=bi_piperx_follower \
-  --robot.id=my_bi_piperx_follower \
-  --robot.left_arm_config.port=<LEFT_FOLLOWER_USB_CAN_SERIAL> \
-  --robot.right_arm_config.port=<RIGHT_FOLLOWER_USB_CAN_SERIAL> \
-  --teleop.type=bi_piperx_leader \
-  --teleop.id=my_bi_piperx_leader \
-  --teleop.left_arm_config.port=<LEFT_LEADER_USB_CAN_SERIAL> \
-  --teleop.right_arm_config.port=<RIGHT_LEADER_USB_CAN_SERIAL>
-```
-
-For PiPER (non-X), replace `bi_piperx_follower`/`bi_piperx_leader` with `bi_piper_follower`/`bi_piper_leader`.
-
-<a id="data-collection"></a>
-
-### 3) Data Collection
-
-Collect rollout data with `lerobot-human-inloop-record`.
-
-#### SO Series (SO100/SO101)
-
-Bimanual template:
+Add a policy path to record policy rollouts and manual takeovers. The dataset
+stores the executed action in `action`, policy output in
+`complementary_info.policy_action`, and intervention source/state metadata in
+the complementary fields.
 
 ```bash
 lerobot-human-inloop-record \
-  --robot.type=bi_so_follower \
-  --robot.left_arm_config.port=/dev/serial/by-id/<LEFT_FOLLOWER_PORT> \
-  --robot.right_arm_config.port=/dev/serial/by-id/<RIGHT_FOLLOWER_PORT> \
-  --robot.id=my_bi_so101_follower \
-  --robot.left_arm_config.cameras='{ wrist: {type: opencv, index_or_path: "/dev/v4l/by-path/<LEFT_WRIST_CAM_PATH>", width: 640, height: 480, fps: 30, fourcc: "MJPG"}}' \
-  --robot.right_arm_config.cameras='{ wrist: {type: opencv, index_or_path: "/dev/v4l/by-path/<RIGHT_WRIST_CAM_PATH>", width: 640, height: 480, fps: 30, fourcc: "MJPG"}, front: {type: intelrealsense, serial_number_or_name: "<REALSENSE_SN>", width: 640, height: 480, fps: 30, warmup_s: 2}}' \
-  --teleop.type=bi_so_leader \
-  --teleop.left_arm_config.port=/dev/serial/by-id/<LEFT_LEADER_PORT> \
-  --teleop.right_arm_config.port=/dev/serial/by-id/<RIGHT_LEADER_PORT> \
-  --teleop.id=my_bi_so101_leader \
-  --dataset.repo_id=<HF_USERNAME_OR_ORG>/<DATASET_NAME> \
-  --dataset.single_task="<YOUR_TASK_DESCRIPTION>" \
-  --dataset.num_episodes=<NUM_EPISODES> \
-  --dataset.episode_time_s=<EPISODE_SECONDS> \
-  --dataset.reset_time_s=<RESET_SECONDS> \
-  --dataset.push_to_hub=true \
-  --display_data=true
+  --robot.type=bi_rebot_b601_follower \
+  --robot.left_arm_config.port=/dev/ttyACM0 \
+  --robot.right_arm_config.port=/dev/ttyACM1 \
+  --robot.id=evorl_b601 \
+  --teleop.type=bi_rebot_102_leader \
+  --teleop.left_arm_config.port=/dev/ttyUSB0 \
+  --teleop.right_arm_config.port=/dev/ttyUSB1 \
+  --teleop.id=evorl_arm102 \
+  --dataset.repo_id=local/my_b601_rollouts \
+  --dataset.single_task="pick and place an object" \
+  --dataset.num_episodes=20 \
+  --dataset.episode_time_s=60 \
+  --dataset.reset_time_s=5 \
+  --dataset.push_to_hub=false \
+  --policy.path=/path/to/pi05_checkpoint
 ```
 
-Recommendation: use **`fourcc: "MJPG"`** for OpenCV and **`warmup_s`** for RealSense. In this example `front` uses RealSense, but you can switch it to OpenCV with the same structure.
+The default takeover flow is `i` to enter alignment, `Space` to confirm when
+all leader/follower joint errors are within the configured threshold, and `i`
+again to return to policy inference. Configure the hotkeys and alignment
+threshold with `--intervention_toggle_key`, `--intervention_confirm_key`, and
+`--intervention_max_joint_error_deg`; inspect all available options with
+`lerobot-human-inloop-record --help`.
 
-#### AgileX (PiPER/PiPER-X)
+After an episode outcome, the B601 returns to the pose measured when the
+recording command started. The Arm 102 is released rather than driven to a
+reset pose.
 
-Bimanual template (left/right, PiPER-X example):
+### Replay
+
+Replay invokes the same B601 action path as teleoperation and therefore keeps
+MIT gravity feedforward enabled:
 
 ```bash
-lerobot-human-inloop-record \
-  --robot.type=bi_piperx_follower \
-  --robot.id=my_bi_piperx_follower \
-  --robot.left_arm_config.port=<LEFT_FOLLOWER_USB_CAN_SERIAL> \
-  --robot.right_arm_config.port=<RIGHT_FOLLOWER_USB_CAN_SERIAL> \
-  --teleop.type=bi_piperx_leader \
-  --teleop.id=my_bi_piperx_leader \
-  --teleop.left_arm_config.port=<LEFT_LEADER_USB_CAN_SERIAL> \
-  --teleop.right_arm_config.port=<RIGHT_LEADER_USB_CAN_SERIAL> \
-  --dataset.repo_id=<HF_USERNAME_OR_ORG>/<DATASET_NAME> \
-  --dataset.single_task="<YOUR_TASK_DESCRIPTION>" \
-  --dataset.num_episodes=<NUM_EPISODES> \
-  --dataset.episode_time_s=<EPISODE_SECONDS> \
-  --dataset.reset_time_s=<RESET_SECONDS> \
-  --dataset.push_to_hub=true \
-  --display_data=true
+lerobot-replay \
+  --robot.type=bi_rebot_b601_follower \
+  --robot.left_arm_config.port=/dev/ttyACM0 \
+  --robot.right_arm_config.port=/dev/ttyACM1 \
+  --robot.id=evorl_b601 \
+  --dataset.repo_id=local/my_b601_task \
+  --dataset.root=/path/to/local/datasets/my_b601_task \
+  --dataset.episode=0
 ```
 
-Hotkeys:
+## Offline Evo-RL training with SwanLab
 
-- `i`: toggle intervention mode (policy <-> teleop takeover)
-- `s`: mark success and end current episode
-- `f`: mark failure and end current episode
-- `Right Arrow`: end the current loop early
-- `Left Arrow`: end early and re-record the current episode
-- `Esc`: stop the recording session
+`scripts/train_evo_rl_pipeline.sh` runs the three stages in order:
 
-Quick quality check:
+1. Value function training (`pistar06`)
+2. Value inference and ACP annotation
+3. PI05 policy training
+
+It uses `accelerate` for multi-GPU execution, disables Hugging Face network
+access for launched processes, writes ACP columns into a copy of the source
+dataset by default, and saves checkpoints/logs under the selected output root.
+Batch-size arguments are per GPU.
+
+Place the required pretrained weights on local storage first: a PI05
+checkpoint, the PaliGemma tokenizer/model directory, the SigLIP vision
+backbone, and the Gemma language backbone. Then run, for example:
 
 ```bash
-lerobot-dataset-report --dataset <HF_USERNAME_OR_ORG>/<DATASET_NAME>
+bash scripts/train_evo_rl_pipeline.sh \
+  --dataset-root /data/datasets/my_b601_rollouts \
+  --dataset-repo-id local/my_b601_rollouts \
+  --pi05-path /data/checkpoints/pi05_base \
+  --paligemma-path /data/weights/google_paligemma-3b-pt-224 \
+  --value-vision-path /data/weights/siglip-so400m-patch14-384 \
+  --value-language-path /data/weights/gemma-3-270m \
+  --output-root /data/evo-rl-runs \
+  --job-name b601-smoke \
+  --gpus 0,1 \
+  --num-processes 2 \
+  --value-steps 100 \
+  --value-batch-size 1 \
+  --infer-batch-size 2 \
+  --policy-steps 100 \
+  --policy-batch-size 1 \
+  --swanlab-mode cloud \
+  --swanlab-project evo-rl
 ```
 
-This prints: dataset meta, totals, episode-length stats/histogram, success/intervention metrics, task list, and full feature schema.
+Use `--stages value_train`, `--stages value_infer`, or
+`--stages policy_train` to run one stage. When skipping an earlier stage,
+provide its artifact with `--value-checkpoint-path` or
+`--annotated-dataset-root`. Run `bash scripts/train_evo_rl_pipeline.sh --help`
+for every supported parameter, including `--dry-run`.
 
-<a id="value-function-training"></a>
+For one GPU, use `--gpus 0 --num-processes 1`. The script uses the equivalent
+of `CUDA_VISIBLE_DEVICES=<ids> accelerate launch --multi_gpu
+--num_processes=<n>` internally; it also handles the `--no_python` form
+required by its Python-module launch command.
 
-### 4) Value Function Training
+## Validation checklist
 
-Train the value function on the current dataset. Current default: [Pi\*0.6](https://www.pi.website/blog/pistar06) (`--value.type=pistar06`).
+Before a hardware session:
 
-Single-GPU template:
+1. Run `python -m pip check` and verify `python -c "import pinocchio, motorbridge, transformers"`.
+2. Confirm the SDK URDF path resolves through `REBOT_GRAVITY_SDK_ROOT` or `REBOT_GRAVITY_URDF`.
+3. Verify port assignments and calibration IDs for left and right arms.
+4. With mechanical support and a clear workspace, check that B601 gravity torque is non-zero and has the correct sign.
+5. Start with low-speed, short teleoperation before recording or replay.
 
-```bash
-lerobot-value-train \
-  --dataset.repo_id=<HF_USERNAME_OR_ORG>/<DATASET_NAME> \
-  --value.type=pistar06 \
-  --value.dtype=bfloat16 \
-  --value.push_to_hub=true \
-  --value.repo_id=<HF_USERNAME_OR_ORG>/<VALUE_MODEL_REPO> \
-  --batch_size=64 \
-  --output_dir=outputs/value_train/<RUN_NAME> \
-  --job_name=<RUN_NAME> \
-  --wandb.enable=true
-```
+## Repository hygiene
 
-Multi-GPU template:
-
-```bash
-CUDA_VISIBLE_DEVICES=<GPU_ID_LIST> accelerate launch \
-  --multi_gpu \
-  --num_processes=<NUM_GPUS> \
-  --mixed_precision=bf16 \
-  $(which lerobot-value-train) \
-  --batch_size=32/<NUM_GPUS> \
-  <VALUE_TRAIN_ARGS>
-```
-
-To plug in a different value function, minimal path in this repo:
-
-- Add `src/lerobot/values/<your_value>/configuration_<your_value>.py` with `@PreTrainedConfig.register_subclass("<your_value>")`.
-- Add `src/lerobot/values/<your_value>/modeling_<your_value>.py` with `<YourValue>Policy(PreTrainedPolicy)` (implement at least `forward`, `predict_value`, and `build_training_raw_batch_hook` for `lerobot-value-train`).
-- Add `src/lerobot/values/<your_value>/processor_<your_value>.py` with `make_<your_value>_pre_post_processors(...)`.
-- Remove/replace the current `pistar06`-only type checks in `src/lerobot/configs/value_train.py` and `src/lerobot/scripts/lerobot_value_infer.py`.
-
-<a id="value-inference"></a>
-
-### 5) Value Inference
-
-Infer value signals and write value/advantage/indicator back to the dataset:
-
-- `value`: estimated return-to-go of the current frame.
-- `advantage`: relative improvement signal (higher means better-than-baseline trajectory quality).
-- `indicator`: binarized training tag derived from advantage.
-
-Single-GPU template:
-
-```bash
-lerobot-value-infer \
-  --dataset.repo_id=<HF_USERNAME_OR_ORG>/<DATASET_NAME> \
-  --inference.checkpoint_path=outputs/value_train/<RUN_NAME> \
-  --runtime.device=cuda \
-  --runtime.batch_size=64 \
-  --acp.enable=true \
-  --acp.n_step=50 \
-  --acp.positive_ratio=0.3 \
-  --acp.value_field=complementary_info.value_<TAG> \
-  --acp.advantage_field=complementary_info.advantage_<TAG> \
-  --acp.indicator_field=complementary_info.acp_indicator_<TAG> \
-  --output_dir=outputs/value_infer/<RUN_NAME> \
-  --job_name=<RUN_NAME>.infer
-```
-
-Multi-GPU template:
-
-```bash
-CUDA_VISIBLE_DEVICES=<GPU_ID_LIST> accelerate launch \
-  --multi_gpu \
-  --num_processes=<NUM_GPUS> \
-  --mixed_precision=bf16 \
-  $(which lerobot-value-infer) \
-  <VALUE_INFER_ARGS>
-```
-
-Parameter notes:
-
-```bash
---acp.n_step: n-step advantage horizon.
---acp.positive_ratio: positive label ratio after advantage binarization (e.g., 0.3 = top 30% per task).
-```
-
-Expected new columns:
-
-```bash
-complementary_info.value_<TAG>
-complementary_info.advantage_<TAG>
-complementary_info.acp_indicator_<TAG>
-```
-
-These columns are written back to the original dataset specified by `--dataset.repo_id`.
-
-<a id="policy-training"></a>
-
-### 6) Policy Training
-
-Train the policy with advantage-conditioned tags.
-**Policy requirement:** it must support **text/task input**, because Advantage-Conditioned tags are injected into **task text**.
-
-Single-GPU template:
-
-```bash
-lerobot-train \
-  --dataset.repo_id=<HF_USERNAME_OR_ORG>/<DATASET_NAME> \
-  --policy.type=<POLICY_TYPE> \
-  --policy.pretrained_path=<POLICY_PRETRAINED_PATH> \
-  --policy.device=cuda \
-  --policy.dtype=bfloat16 \
-  --batch_size=32 \
-  --steps=30000 \
-  --acp.enable=true \
-  --acp.indicator_field=complementary_info.acp_indicator_<TAG> \
-  --acp.indicator_dropout_prob=0.3 \
-  --output_dir=outputs/train/<RUN_NAME> \
-  --job_name=<RUN_NAME> \
-  --wandb.enable=true \
-  --policy.push_to_hub=true \
-  --policy.repo_id=<HF_USERNAME_OR_ORG>/<POLICY_REPO>
-```
-
-`--acp.indicator_dropout_prob` controls tag drop rate in task text; `0.3` helps learn both tagged and untagged conditions.
-
-Important checks:
-
-- `--acp.indicator_field` must exist in the dataset and be **binary (`0/1`)**.
-
-Multi-GPU template:
-
-```bash
-CUDA_VISIBLE_DEVICES=<GPU_ID_LIST> accelerate launch \
-  --multi_gpu \
-  --num_processes=<NUM_GPUS> \
-  --mixed_precision=bf16 \
-  $(which lerobot-train) \
-  --batch_size=32/<NUM_GPUS> \
-  <POLICY_TRAIN_ARGS>
-```
-
-<a id="closed-loop-rollout-and-next-round"></a>
-
-### 7) Closed-loop Rollout and Next Round
-
-Deploy the trained policy in human-in-loop mode and collect the next dataset round:
-
-```bash
-lerobot-human-inloop-record \
-  --robot.type=bi_so_follower \
-  --robot.left_arm_config.port=/dev/serial/by-id/<LEFT_FOLLOWER_PORT> \
-  --robot.right_arm_config.port=/dev/serial/by-id/<RIGHT_FOLLOWER_PORT> \
-  --robot.id=my_bi_so101_follower \
-  --robot.left_arm_config.cameras='{ wrist: {type: opencv, index_or_path: "/dev/v4l/by-path/<LEFT_WRIST_CAM_PATH>", width: 640, height: 480, fps: 30, fourcc: "MJPG"}}' \
-  --robot.right_arm_config.cameras='{ wrist: {type: opencv, index_or_path: "/dev/v4l/by-path/<RIGHT_WRIST_CAM_PATH>", width: 640, height: 480, fps: 30, fourcc: "MJPG"}, front: {type: intelrealsense, serial_number_or_name: "<REALSENSE_SN>", width: 640, height: 480, fps: 30, warmup_s: 2}}' \
-  --teleop.type=bi_so_leader \
-  --teleop.left_arm_config.port=/dev/serial/by-id/<LEFT_LEADER_PORT> \
-  --teleop.right_arm_config.port=/dev/serial/by-id/<RIGHT_LEADER_PORT> \
-  --teleop.id=my_bi_so101_leader \
-  --dataset.repo_id=<HF_USERNAME_OR_ORG>/<DATASET_NAME_NEXT_ROUND> \
-  --dataset.single_task="<YOUR_TASK_DESCRIPTION>" \
-  --dataset.num_episodes=<NUM_EPISODES> \
-  --dataset.episode_time_s=<EPISODE_SECONDS> \
-  --dataset.reset_time_s=<RESET_SECONDS> \
-  --dataset.push_to_hub=true \
-  --display_data=true \
-  --policy.path=<POLICY_CHECKPOINT_OR_HUB_ID> \
-  --resume=true
-```
-
-Dataset continuation options:
-
-- **Append in place:** keep `--resume=true` and continue recording into the same dataset.
-- **Merge multiple rounds:** use the official dataset editor to merge separate datasets.
-
-```bash
-lerobot-edit-dataset \
-  --repo_id=<HF_USERNAME_OR_ORG>/<MERGED_DATASET_NAME> \
-  --operation.type=merge \
-  --operation.repo_ids="['<HF_USERNAME_OR_ORG>/<DATASET_ROUND_1>','<HF_USERNAME_OR_ORG>/<DATASET_ROUND_2>']"
-```
-
-Additional data attributes vs default `lerobot-record` behavior:
-
-- `complementary_info.policy_action`: policy output action at each step.
-- `complementary_info.is_intervention`: whether current step is in intervention.
-- `complementary_info.state`: intervention state-machine state.
-- `complementary_info.collector_policy_id`: step-level action source ID (`human` or policy ID).
-- Episode metadata `episode_success`: success/failure label saved per episode.
-
-Iterative training loop (abstract):
-
-```text
-[Multi-task demonstration data pool]
-        |
-        v
-[Offline RL pretraining for a vision-language-action policy]
-        |
-        v
-[Task-specific initialization / fine-tuning from demonstrations]
-        |
-        v
-|---- Iteration k = 1..K -------------------------------------|
-| 1) Deploy current policy π_k and collect new rollout data   |
-| 2) Merge into data pool: D <- D U new_data                  |
-| 3) Train value function on D                                |
-| 4) Infer advantage and binarize into indicator tags         |
-| 5) Train advantage-conditioned policy to get π_{k+1}        |
-|-------------------------------------------------------------|
-        |
-        v
-[Stronger policy with improved success rate and throughput]
-```
-
-## Model & Dataset
-
-- Hugging Face model release: coming soon
-- Hugging Face dataset: [MINT-SJTU/RW-RL-Dataset](https://huggingface.co/datasets/MINT-SJTU/RW-RL-Dataset)
-
-**RW-RL Dataset** is the companion real-world reinforcement learning dataset for Evo-RL. It is organized around iterative policy improvement on real robots, including teleoperation demonstrations, human-in-the-loop intervention data, policy rollout traces, episode-level success/failure labels, intervention states, and complementary signals used for value/reward modeling.
-
-The dataset is designed to support offline RL, value learning, advantage-conditioned policy training, and closed-loop rollout analysis across real robot tasks. Please refer to the Hugging Face dataset card for release notes, schema details, splits, and version tags.
-
-## Community Channels
-
-- WeChat official post: [Coming Soon](https://evorl.example.com/wechat-post)
-- Documentation: [`docs/README.md`](./docs/README.md)
-- GitHub Issues: [Create an issue](https://github.com/MINT-SJTU/Evo-RL/issues)
-- Email: business@evomind-tech.com
-- Get into WeChat group by scanning QR code:
-
-<p align="center">
-  <img alt="EvoMind WeChat QR" src="./website/assets/images/rlgroup.jpg" width="220"/>
-  <!-- <img alt="EvoMind WeChat QR" src="./website/assets/images/WZJHOfficial.png" width="220"/> -->
-</p>
-
-- So101 Supplier WeChat Contact, So101 设备提供商:
-<p align="center">
-  <img alt="So101 Supplier" src="./website/assets/images/so101provider.jpg" width="220"/>
-</p>
-
-## Affiliations
-
-<p align="center">
-  <img alt="SJTU community visual" src="./website/assets/images/sjtu.png" height="68"/>
-  <img alt="EvoMind" src="./website/assets/images/evomind1.png" height="60"/>
-</p>
-
-## Citation
-
-```bibtex
-@misc{evorl2026,
-  title        = {Evo-RL: Towards Iterative Policy Improvement in Real-World Offline RL},
-  author       = {Evo-RL Contributors},
-  year         = {2026},
-  howpublished = {\url{https://github.com/MINT-SJTU/Evo-RL}}
-}
-```
+The reBot examples do not contain a server address, login token, password,
+private key, or local credential. The repository ignores common local
+credential files such as `.env.*`, `.netrc`, `.swanlab/`, and private-key
+formats. Use command arguments and environment variables for machine-specific
+paths.
 
 ## License
 
-Apache-2.0. See [LICENSE](./LICENSE).
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/image?repos=MINT-SJTU/Evo-RL&type=date&legend=top-left)](https://www.star-history.com/?repos=MINT-SJTU%2FEvo-RL&type=date&legend=top-left)
+Apache-2.0. See [LICENSE](LICENSE).

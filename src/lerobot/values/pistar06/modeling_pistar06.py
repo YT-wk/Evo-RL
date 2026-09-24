@@ -323,7 +323,16 @@ class Pistar06Model(nn.Module):
 
     def _encode_images(self, flat_images: Tensor) -> Tensor:
         if hasattr(self.vision_encoder, "get_image_features"):
-            return self.vision_encoder.get_image_features(pixel_values=flat_images)
+            image_features = self.vision_encoder.get_image_features(pixel_values=flat_images)
+            if isinstance(image_features, Tensor):
+                return image_features
+            if hasattr(image_features, "pooler_output") and image_features.pooler_output is not None:
+                return image_features.pooler_output
+            if hasattr(image_features, "last_hidden_state"):
+                return image_features.last_hidden_state.mean(dim=1)
+            raise ValueError(
+                "Unsupported get_image_features output. Expected a tensor, pooler_output, or last_hidden_state."
+            )
 
         vision_outputs = self.vision_encoder(pixel_values=flat_images, return_dict=True)
         if hasattr(vision_outputs, "pooler_output") and vision_outputs.pooler_output is not None:

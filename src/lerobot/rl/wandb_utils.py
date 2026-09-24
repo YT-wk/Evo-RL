@@ -220,16 +220,37 @@ class SwanLabLogger:
         self.job_name = cfg.job_name
         self.env_fps = cfg.env.fps if cfg.env else None
 
-        swanlab.login(api_key=os.environ["SWANLAB_API_KEY"])
+        requested_mode = os.getenv("SWANLAB_MODE", self.cfg.mode or "online").lower()
+        mode_aliases = {"cloud": "online"}
+        mode = mode_aliases.get(requested_mode, requested_mode)
+        if mode not in {"online", "local", "offline", "disabled"}:
+            raise ValueError(
+                "SWANLAB_MODE must be one of 'cloud', 'online', 'local', 'offline', or 'disabled', "
+                f"got {requested_mode!r}."
+            )
+        if mode == "online":
+            api_key = os.getenv("SWANLAB_API_KEY")
+            credentials_path = Path.home() / ".swanlab" / ".netrc"
+            if api_key:
+                swanlab.login(api_key=api_key)
+            elif credentials_path.is_file():
+                # Reuse an existing SwanLab login without exposing its credential.
+                swanlab.login()
+            else:
+                raise RuntimeError(
+                    "SWANLAB_API_KEY is required for SWANLAB_MODE=cloud/online. "
+                    "Use SWANLAB_MODE=local to keep logs on this machine."
+                )
+
         self._run = swanlab.init(
             project=self.cfg.project,
             workspace=self.cfg.entity,
             experiment_name=self.job_name,
             description=self.cfg.notes,
             tags=cfg_to_group(cfg, return_list=True, truncate_tags=True),
-            logdir=str(self.log_dir),
+            log_dir=str(self.log_dir),
             config=cfg.to_dict(),
-            mode=self.cfg.mode if self.cfg.mode in ["offline", "disabled"] else "cloud",
+            mode=mode,
             id=cfg.wandb.run_id,
             resume="must" if cfg.resume else None,
         )
@@ -289,18 +310,23 @@ class SwanLabLogger:
 def make_logger(cfg: TrainPipelineConfig) -> WandBLogger | SwanLabLogger | None:
     """Create a training logger based on config and environment.
 
-    Returns SwanLabLogger if SWANLAB_API_KEY is set, WandBLogger otherwise.
+    Returns SwanLabLogger when it is explicitly requested or configured, WandBLogger otherwise.
     Returns None if logging is disabled.
     """
     if not (cfg.wandb.enable and cfg.wandb.project):
         return None
 
-    if os.getenv("SWANLAB_API_KEY"):
+    swanlab_requested = (
+        os.getenv("LEROBOT_LOGGER", "").lower() == "swanlab"
+        or bool(os.getenv("SWANLAB_API_KEY"))
+        or os.getenv("SWANLAB_MODE", "").lower() in {"cloud", "online", "local", "offline", "disabled"}
+    )
+    if swanlab_requested:
         try:
             return SwanLabLogger(cfg)
         except ImportError:
             logging.warning(
-                "swanlab package is not installed but SWANLAB_API_KEY is set. "
+                "swanlab package is not installed but SwanLab logging was requested. "
                 "Falling back to WandB. Install swanlab with: pip install swanlab"
             )
     return WandBLogger(cfg)

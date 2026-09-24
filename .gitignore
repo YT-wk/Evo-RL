@@ -14,6 +14,8 @@
 
 ### Environments & Dependencies ###
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -159,6 +161,11 @@ sbatch*.sh
 ### Miscellaneous ###
 # W&B
 wandb/
+.swanlab/
+.netrc
+*.pem
+*.p12
+*.pfx
 
 # Dev scripts
 .dev/
