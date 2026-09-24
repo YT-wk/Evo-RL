@@ -31,7 +31,7 @@ schema is unchanged, so recording, replay, and training use the normal
   <img src="website/assets/images/star-arm-102-hd-leader.png" alt="Fashion Star Arm 102-HD leader arm" width="560" />
 </p>
 
-The supported leader is the Fashion Star Star Arm 102-HD, connected through
+The supported leader is the [Fashion Star Star Arm 102-HD](https://fashionstar.com.cn/wiki/robot-arm/star-arm-102/), connected through
 its UART smart-servo bus.
 
 ## Installation
@@ -91,7 +91,7 @@ prevents both cases.
 
 ### 3. Configure B601 gravity feedforward
 
-MIT mode requires the `ReBot_Arm_DM.urdf` from the reBot SDK. Set one of these
+MIT mode requires the `ReBot_Arm_DM.urdf` from the [reBot SDK](https://github.com/Seeed-Projects/reBotArm_control_py). Set one of these
 variables before connecting a B601-DM:
 
 ```bash
@@ -107,7 +107,7 @@ command is rejected rather than silently sending zero gravity torque. Confirm
 the gravity-torque signs with the arm mechanically supported before any normal
 teleoperation or replay.
 
-### 4. Optional SwanLab login
+### 4. Optional [SwanLab](https://github.com/SwanHubX/SwanLab) login
 
 For cloud visualization, authenticate in the local user account. Do not put a
 token in source files, shell history, or the repository.
