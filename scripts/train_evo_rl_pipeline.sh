@@ -197,11 +197,16 @@ print_command() {
 }
 
 launch() {
+    local -a launch_args=(
+        --num_processes="$NUM_PROCESSES"
+        --mixed_precision=bf16
+        --no_python
+    )
+    if (( NUM_PROCESSES >= 2 )); then
+        launch_args=(--multi_gpu "${launch_args[@]}")
+    fi
     CUDA_VISIBLE_DEVICES="$GPUS" "$PYTHON" -m accelerate.commands.launch \
-        --multi_gpu \
-        --num_processes="$NUM_PROCESSES" \
-        --mixed_precision=bf16 \
-        --no_python \
+        "${launch_args[@]}" \
         "$PYTHON" "$@"
 }
 

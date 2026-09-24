@@ -33,6 +33,13 @@ from datasets.features.features import register_feature
 from PIL import Image
 
 
+def _effective_timestamp_tolerance(query_ts: torch.Tensor, loaded_ts: torch.Tensor, tolerance_s: float) -> float:
+    """Allow for float32 PTS quantization without accepting frame-level drift."""
+    max_abs_timestamp_s = max(float(query_ts.abs().max()), float(loaded_ts.abs().max()), 1.0)
+    float32_quantization_s = torch.finfo(torch.float32).eps * max_abs_timestamp_s * 4
+    return max(float(tolerance_s), float32_quantization_s)
+
+
 def get_safe_default_codec():
     if importlib.util.find_spec("torchcodec"):
         return "torchcodec"
@@ -138,16 +145,18 @@ def decode_video_frames_torchvision(
 
     reader = None
 
-    query_ts = torch.tensor(timestamps)
-    loaded_ts = torch.tensor(loaded_ts)
+    query_ts = torch.tensor(timestamps, dtype=torch.float64)
+    loaded_ts = torch.tensor(loaded_ts, dtype=torch.float64)
 
     # compute distances between each query timestamp and timestamps of all loaded frames
     dist = torch.cdist(query_ts[:, None], loaded_ts[:, None], p=1)
     min_, argmin_ = dist.min(1)
 
-    is_within_tol = min_ < tolerance_s
+    effective_tolerance_s = _effective_timestamp_tolerance(query_ts, loaded_ts, tolerance_s)
+    is_within_tol = min_ <= effective_tolerance_s
     assert is_within_tol.all(), (
-        f"One or several query timestamps unexpectedly violate the tolerance ({min_[~is_within_tol]} > {tolerance_s=})."
+        "One or several query timestamps unexpectedly violate the tolerance "
+        f"({min_[~is_within_tol]} > {effective_tolerance_s=} from {tolerance_s=})."
         "It means that the closest frame that can be loaded from the video is too far away in time."
         "This might be due to synchronization issues with timestamps during data collection."
         "To be safe, we advise to ignore this item during training."
@@ -264,16 +273,18 @@ def decode_video_frames_torchcodec(
         if log_loaded_timestamps:
             logging.info(f"Frame loaded at timestamp={pts:.4f}")
 
-    query_ts = torch.tensor(timestamps)
-    loaded_ts = torch.tensor(loaded_ts)
+    query_ts = torch.tensor(timestamps, dtype=torch.float64)
+    loaded_ts = torch.tensor(loaded_ts, dtype=torch.float64)
 
     # compute distances between each query timestamp and loaded timestamps
     dist = torch.cdist(query_ts[:, None], loaded_ts[:, None], p=1)
     min_, argmin_ = dist.min(1)
 
-    is_within_tol = min_ < tolerance_s
+    effective_tolerance_s = _effective_timestamp_tolerance(query_ts, loaded_ts, tolerance_s)
+    is_within_tol = min_ <= effective_tolerance_s
     assert is_within_tol.all(), (
-        f"One or several query timestamps unexpectedly violate the tolerance ({min_[~is_within_tol]} > {tolerance_s=})."
+        "One or several query timestamps unexpectedly violate the tolerance "
+        f"({min_[~is_within_tol]} > {effective_tolerance_s=} from {tolerance_s=})."
         "It means that the closest frame that can be loaded from the video is too far away in time."
         "This might be due to synchronization issues with timestamps during data collection."
         "To be safe, we advise to ignore this item during training."
