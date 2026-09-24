@@ -84,7 +84,10 @@ def value_train(
     if accelerator is None:
         from accelerate.utils import DistributedDataParallelKwargs
 
-        ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=False)
+        # Pistar06's SigLIP wrapper exposes encoder branches that are not used
+        # by the image-only value loss. DDP must account for those parameters
+        # across iterations instead of failing at the next reduction.
+        ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
         force_cpu = cfg.value.device == "cpu"
         accelerator = Accelerator(
             step_scheduler_with_optimizer=False,
