@@ -29,13 +29,6 @@ def _candidate_urdf_paths() -> list[Path]:
     configured_root = os.environ.get("REBOT_GRAVITY_SDK_ROOT")
     if configured_root:
         roots.append(Path(configured_root).expanduser())
-    roots.extend(
-        [
-            Path("/home/ubuntu/yt_ws/Codes/reBotArm_control_py"),
-            Path("/home/robot/Codes/rebot/third_party/reBotArm_control_py"),
-            Path("/home/robot/Codes/rebot_grasp/sdk/reBotArm_control_py"),
-        ]
-    )
 
     try:
         import reBotArm_control_py

@@ -59,16 +59,16 @@ The current Evo1 integration includes a small set of stage2-oriented training op
 Example: 4 GPUs, effective batch size `16` (`4 x 4`), `5000` steps, save every `2500`.
 
 ```bash
-cd /root/private_data/code/Evo-RL
+cd /path/to/Evo-RL
 PYTHONPATH=src /opt/conda/bin/accelerate launch \
   --config_file src/lerobot/policies/evo1/accelerate_four_gpu_bf16.yaml \
   -m lerobot.scripts.lerobot_train \
-  --dataset.repo_id=Elvinky/bi_so101_fold_towel_d0 \
-  --dataset.root=/root/private_data/data/bi_so101_fold_towel_d0 \
+  --dataset.repo_id=local/example_dataset \
+  --dataset.root=/path/to/dataset \
   --dataset.image_transforms.enable=false \
   --policy.type=evo1 \
   --policy.training_stage=stage1 \
-  --policy.vlm_model_name=/root/private_data/models/InternVL3-1B \
+  --policy.vlm_model_name=/path/to/InternVL3-1B \
   --policy.device=cuda \
   --policy.push_to_hub=false \
   --policy.dropout=0.2 \
@@ -89,7 +89,7 @@ PYTHONPATH=src /opt/conda/bin/accelerate launch \
   --save_freq=2500 \
   --eval_freq=0 \
   --wandb.enable=false \
-  --output_dir=/root/private_data/code/Evo-RL/outputs/train/evo1_stage1
+  --output_dir=/path/to/outputs/train/evo1_stage1
 ```
 
 ## Stage 2 Command
@@ -97,17 +97,17 @@ PYTHONPATH=src /opt/conda/bin/accelerate launch \
 Example: start stage2 from the stage1 `5000`-step checkpoint, `80000` steps, save every `10000`.
 
 ```bash
-cd /root/private_data/code/Evo-RL
+cd /path/to/Evo-RL
 PYTHONPATH=src /opt/conda/bin/accelerate launch \
   --config_file src/lerobot/policies/evo1/accelerate_four_gpu_bf16.yaml \
   -m lerobot.scripts.lerobot_train \
-  --dataset.repo_id=Elvinky/bi_so101_fold_towel_d0 \
-  --dataset.root=/root/private_data/data/bi_so101_fold_towel_d0 \
+  --dataset.repo_id=local/example_dataset \
+  --dataset.root=/path/to/dataset \
   --dataset.image_transforms.enable=false \
-  --policy.path=/root/private_data/code/Evo-RL/outputs/train/evo1_stage1/checkpoints/005000/pretrained_model \
+  --policy.path=/path/to/outputs/train/evo1_stage1/checkpoints/005000/pretrained_model \
   --policy.training_stage=stage2 \
   --resume_pretrain=true \
-  --policy.vlm_model_name=/root/private_data/models/InternVL3-1B \
+  --policy.vlm_model_name=/path/to/InternVL3-1B \
   --policy.device=cuda \
   --policy.use_flash_attn=true \
   --policy.embedder_tensor_fastpath=true \
@@ -132,5 +132,5 @@ PYTHONPATH=src /opt/conda/bin/accelerate launch \
   --save_freq=10000 \
   --eval_freq=0 \
   --wandb.enable=false \
-  --output_dir=/root/private_data/code/Evo-RL/outputs/train/evo1_stage2
+  --output_dir=/path/to/outputs/train/evo1_stage2
 ```
