@@ -43,7 +43,7 @@ combination for this repository: reBot hardware dependencies, the patched
 PI05/OpenPI Transformers build, and SwanLab.
 
 ```bash
-git clone <YOUR_FORK_URL>
+git clone https://github.com/YT-wk/Evo-RL
 cd Evo-RL
 
 conda create -y -n evo-rl python=3.10
