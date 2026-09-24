@@ -286,9 +286,12 @@ bash scripts/train_evo_rl_pipeline.sh \
   --num-processes 2 \
   --value-steps 100 \
   --value-batch-size 1 \
+  --value-gradient-checkpointing true \
   --infer-batch-size 2 \
   --policy-steps 100 \
   --policy-batch-size 1 \
+  --value-save-freq 100 \
+  --policy-save-freq 1000 \
   --swanlab-mode cloud \
   --swanlab-project evo-rl
 ```
@@ -303,6 +306,10 @@ For one GPU, use `--gpus 0 --num-processes 1`. The script uses the equivalent
 of `CUDA_VISIBLE_DEVICES=<ids> accelerate launch --multi_gpu
 --num_processes=<n>` internally; it also handles the `--no_python` form
 required by its Python-module launch command.
+
+On high-memory GPUs, benchmark a larger `--value-batch-size` and
+`--value-gradient-checkpointing false`. Disabling gradient checkpointing uses
+more VRAM but avoids the backward-pass recomputation it introduces.
 
 ## Validation checklist
 

@@ -21,12 +21,14 @@ NUM_PROCESSES="2"
 VALUE_STEPS="2"
 VALUE_BATCH_SIZE="1"
 VALUE_NUM_WORKERS="2"
+VALUE_GRADIENT_CHECKPOINTING="true"
 INFER_BATCH_SIZE="2"
 INFER_NUM_WORKERS="2"
 POLICY_STEPS="2"
 POLICY_BATCH_SIZE="1"
 POLICY_NUM_WORKERS="2"
-SAVE_FREQ="1"
+VALUE_SAVE_FREQ="100"
+POLICY_SAVE_FREQ="1000"
 LOG_FREQ="1"
 ACP_TAG="value"
 ACP_N_STEP="50"
@@ -72,12 +74,15 @@ Execution:
   --value-steps N                 Value training steps
   --value-batch-size N            Value per-GPU batch size
   --value-num-workers N
+  --value-gradient-checkpointing BOOL
   --infer-batch-size N            Value inference per-GPU batch size
   --infer-num-workers N
   --policy-steps N                Policy training steps
   --policy-batch-size N           Policy per-GPU batch size
   --policy-num-workers N
-  --save-freq N
+  --save-freq N                 Set both Value and Policy checkpoint intervals
+  --value-save-freq N           Value checkpoint interval (default: 100)
+  --policy-save-freq N          Policy checkpoint interval (default: 1000)
   --log-freq N
   --value-checkpoint-path PATH    Existing value run/checkpoint when value_train is skipped
   --annotated-dataset-root PATH   Existing ACP-annotated data when value_infer is skipped
@@ -124,12 +129,19 @@ while [[ $# -gt 0 ]]; do
         --value-steps) VALUE_STEPS="$(require_value "$@")"; shift 2 ;;
         --value-batch-size) VALUE_BATCH_SIZE="$(require_value "$@")"; shift 2 ;;
         --value-num-workers) VALUE_NUM_WORKERS="$(require_value "$@")"; shift 2 ;;
+        --value-gradient-checkpointing) VALUE_GRADIENT_CHECKPOINTING="$(require_value "$@")"; shift 2 ;;
         --infer-batch-size) INFER_BATCH_SIZE="$(require_value "$@")"; shift 2 ;;
         --infer-num-workers) INFER_NUM_WORKERS="$(require_value "$@")"; shift 2 ;;
         --policy-steps) POLICY_STEPS="$(require_value "$@")"; shift 2 ;;
         --policy-batch-size) POLICY_BATCH_SIZE="$(require_value "$@")"; shift 2 ;;
         --policy-num-workers) POLICY_NUM_WORKERS="$(require_value "$@")"; shift 2 ;;
-        --save-freq) SAVE_FREQ="$(require_value "$@")"; shift 2 ;;
+        --save-freq)
+            VALUE_SAVE_FREQ="$(require_value "$@")"
+            POLICY_SAVE_FREQ="$VALUE_SAVE_FREQ"
+            shift 2
+            ;;
+        --value-save-freq) VALUE_SAVE_FREQ="$(require_value "$@")"; shift 2 ;;
+        --policy-save-freq) POLICY_SAVE_FREQ="$(require_value "$@")"; shift 2 ;;
         --log-freq) LOG_FREQ="$(require_value "$@")"; shift 2 ;;
         --acp-tag) ACP_TAG="$(require_value "$@")"; shift 2 ;;
         --acp-n-step) ACP_N_STEP="$(require_value "$@")"; shift 2 ;;
@@ -254,6 +266,10 @@ copy_dataset_tree() {
 [[ "$NUM_PROCESSES" =~ ^[1-9][0-9]*$ ]] || die "--num-processes must be a positive integer"
 [[ "$VALUE_STEPS" =~ ^[1-9][0-9]*$ ]] || die "--value-steps must be a positive integer"
 [[ "$POLICY_STEPS" =~ ^[1-9][0-9]*$ ]] || die "--policy-steps must be a positive integer"
+[[ "$VALUE_SAVE_FREQ" =~ ^[1-9][0-9]*$ ]] || die "--value-save-freq must be a positive integer"
+[[ "$POLICY_SAVE_FREQ" =~ ^[1-9][0-9]*$ ]] || die "--policy-save-freq must be a positive integer"
+[[ "$VALUE_GRADIENT_CHECKPOINTING" =~ ^(true|false)$ ]] || die \
+    "--value-gradient-checkpointing must be 'true' or 'false'"
 [[ "$SWANLAB_MODE" =~ ^(cloud|online|local|offline|disabled)$ ]] || die "Invalid --swanlab-mode: $SWANLAB_MODE"
 require_dir "$CODE_DIR"
 require_file "$CODE_DIR/src/lerobot/scripts/lerobot_value_train.py"
@@ -339,14 +355,14 @@ if stage_enabled value_train; then
         "--value.language_repo_id=$VALUE_LANGUAGE_PATH"
         --value.dtype=bfloat16
         --value.push_to_hub=false
-        --value.use_gradient_checkpointing=true
+        "--value.use_gradient_checkpointing=$VALUE_GRADIENT_CHECKPOINTING"
         "--value.scheduler_warmup_steps=0"
         "--value.scheduler_decay_steps=$VALUE_STEPS"
         "--output_dir=$RUN_DIR/value_train"
         "--job_name=$JOB_NAME.value"
         "--batch_size=$VALUE_BATCH_SIZE"
         "--steps=$VALUE_STEPS"
-        "--save_freq=$SAVE_FREQ"
+        "--save_freq=$VALUE_SAVE_FREQ"
         "--log_freq=$LOG_FREQ"
         "--num_workers=$VALUE_NUM_WORKERS"
         --wandb.enable=true
@@ -417,7 +433,7 @@ if stage_enabled policy_train; then
         "--job_name=$JOB_NAME.policy"
         "--batch_size=$POLICY_BATCH_SIZE"
         "--steps=$POLICY_STEPS"
-        "--save_freq=$SAVE_FREQ"
+        "--save_freq=$POLICY_SAVE_FREQ"
         "--log_freq=$LOG_FREQ"
         "--num_workers=$POLICY_NUM_WORKERS"
         --wandb.enable=true
